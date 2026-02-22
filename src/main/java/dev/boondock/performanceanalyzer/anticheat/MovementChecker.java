@@ -1,0 +1,500 @@
+package dev.boondock.performanceanalyzer.anticheat;
+
+import dev.boondock.performanceanalyzer.config.PluginConfig;
+import dev.boondock.performanceanalyzer.db.DatabaseManager;
+import dev.boondock.performanceanalyzer.integration.LuckPermsHook;
+import dev.boondock.performanceanalyzer.util.Constants;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.entity.*;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Detects suspicious movement patterns that may indicate cheating.
+ * Checks for various movement types: walking, sprinting, swimming, riding, etc.
+ * WARNING: This is basic detection and may produce false positives.
+ *
+ * PERFORMANCE OPTIMIZATION:
+ * - Uses event sampling (checks only every 10th move or significant distance)
+ * - Reduces CPU usage by ~90% with minimal detection accuracy loss
+ */
+public class MovementChecker implements Listener {
+
+    private final Plugin plugin;
+    private final PluginConfig config;
+    private final DatabaseManager database;
+    private final ViolationTracker violations;
+    private LuckPermsHook luckPerms;
+    private MovementAlertManager alertManager;
+
+    private final Map<UUID, Location> lastLocations = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> consecutiveSpeedViolations = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> consecutiveFlyViolations = new ConcurrentHashMap<>();
+
+    // Performance optimization: Event sampling
+    private final Map<UUID, Integer> moveCounter = new ConcurrentHashMap<>();
+
+    // Knockback/Damage immunity tracking
+    private final Map<UUID, Long> recentKnockback = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> recentDamage = new ConcurrentHashMap<>();
+    private static final long KNOCKBACK_IMMUNITY_MS = 2000; // 2 seconds
+
+    public MovementChecker(Plugin plugin, PluginConfig config, DatabaseManager database, ViolationTracker violations) {
+        this.plugin = plugin;
+        this.config = config;
+        this.database = database;
+        this.violations = violations;
+    }
+
+    public void setLuckPerms(LuckPermsHook luckPerms) {
+        this.luckPerms = luckPerms;
+    }
+
+    public void setAlertManager(MovementAlertManager alertManager) {
+        this.alertManager = alertManager;
+    }
+
+    /**
+     * Determines the current movement type of a player.
+     * Priority order matters - checks most specific states first.
+     */
+    private MovementType getMovementType(Player player) {
+        // PRIORITY 1: Check if in vehicle (highest priority)
+        Entity vehicle = player.getVehicle();
+        if (vehicle != null) {
+            // Rideable animals
+            if (vehicle instanceof Horse) {
+                return MovementType.RIDING_HORSE;
+            }
+            if (vehicle instanceof Donkey || vehicle instanceof Mule) {
+                return MovementType.RIDING_DONKEY;
+            }
+            if (vehicle instanceof Llama) {
+                return MovementType.RIDING_LLAMA;
+            }
+            if (vehicle instanceof Camel) {
+                return MovementType.RIDING_CAMEL;
+            }
+            if (vehicle instanceof Pig) {
+                return MovementType.RIDING_PIG;
+            }
+            if (vehicle instanceof Strider) {
+                return MovementType.RIDING_STRIDER;
+            }
+            // Vehicles
+            if (vehicle instanceof Boat) {
+                return MovementType.BOAT;
+            }
+            if (vehicle instanceof Minecart) {
+                return MovementType.MINECART;
+            }
+            // Fallback for any other vehicle
+            return MovementType.OTHER_VEHICLE;
+        }
+
+        // PRIORITY 2: Check special flying states
+        if (player.isGliding()) {
+            return MovementType.ELYTRA;
+        }
+        if (player.isRiptiding()) {
+            return MovementType.RIPTIDE;
+        }
+        if (player.isFlying()) {
+            return MovementType.CREATIVE_FLY;
+        }
+
+        // PRIORITY 3: Check water movement
+        if (player.isSwimming()) {
+            return MovementType.SWIMMING;
+        }
+
+        // PRIORITY 4: Check climbing
+        Material blockAt = player.getLocation().getBlock().getType();
+        if (blockAt == Material.LADDER || blockAt == Material.VINE ||
+            blockAt == Material.TWISTING_VINES || blockAt == Material.WEEPING_VINES ||
+            blockAt == Material.CAVE_VINES || blockAt == Material.SCAFFOLDING) {
+            return MovementType.CLIMBING;
+        }
+
+        // PRIORITY 5: Check ground movement states
+        if (player.isSprinting()) {
+            return MovementType.SPRINTING;
+        }
+        if (player.isSneaking()) {
+            return MovementType.SNEAKING;
+        }
+
+        // DEFAULT: Normal walking
+        return MovementType.WALKING;
+    }
+
+    /**
+     * Gets the maximum allowed speed for a movement type.
+     * Includes lag compensation based on player ping.
+     */
+    private double getMaxSpeed(MovementType type, Player player) {
+        // Base speeds from config
+        double baseWalkSpeed = config.speedThresholdWalk();
+        double baseSprintSpeed = config.speedThresholdSprint();
+        double baseFlySpeed = config.speedThresholdFly();
+
+        // Apply speed potion multiplier
+        double speedMultiplier = 1.0;
+        if (player.hasPotionEffect(PotionEffectType.SPEED)) {
+            int amplifier = player.getPotionEffect(PotionEffectType.SPEED).getAmplifier() + 1;
+            speedMultiplier += Constants.SPEED_POTION_MULTIPLIER_PER_LEVEL * amplifier;
+        }
+
+        // Apply soul speed enchantment multiplier on soul sand/soil
+        Material below = player.getLocation().getBlock().getRelative(0, -1, 0).getType();
+        if (below == Material.SOUL_SAND || below == Material.SOUL_SOIL) {
+            speedMultiplier += Constants.SOUL_SPEED_MULTIPLIER;
+        }
+
+        // LAG COMPENSATION: Increase threshold based on player ping
+        int ping = player.getPing();
+        if (ping > 100) {
+            // +10% per 100ms ping above 100ms (lenient for high-ping players)
+            double lagMultiplier = 1.0 + ((ping - 100) / 1000.0);
+            speedMultiplier *= lagMultiplier;
+        }
+
+        return switch (type) {
+            case WALKING -> baseWalkSpeed * speedMultiplier;
+            case SPRINTING -> baseSprintSpeed * speedMultiplier;
+            case SNEAKING -> baseWalkSpeed * Constants.SNEAKING_SPEED_MULTIPLIER * speedMultiplier;
+            case SWIMMING -> baseWalkSpeed * Constants.SWIMMING_SPEED_MULTIPLIER * speedMultiplier;
+            case CLIMBING -> baseWalkSpeed * Constants.CLIMBING_SPEED_MULTIPLIER;
+            case RIDING_HORSE -> Constants.HORSE_MAX_SPEED;
+            case RIDING_DONKEY -> Constants.DONKEY_MAX_SPEED;
+            case RIDING_LLAMA -> Constants.LLAMA_MAX_SPEED;
+            case RIDING_CAMEL -> Constants.CAMEL_MAX_SPEED;
+            case RIDING_PIG -> Constants.PIG_MAX_SPEED;
+            case RIDING_STRIDER -> Constants.STRIDER_MAX_SPEED;
+            case BOAT -> Constants.BOAT_MAX_SPEED;
+            case MINECART -> Constants.MINECART_MAX_SPEED;
+            case ELYTRA -> Constants.ELYTRA_MAX_SPEED;
+            case RIPTIDE -> Constants.RIPTIDE_MAX_SPEED;
+            case CREATIVE_FLY -> baseFlySpeed * Constants.CREATIVE_FLY_MULTIPLIER;
+            case OTHER_VEHICLE -> Constants.OTHER_VEHICLE_MAX_SPEED;
+        };
+    }
+
+    /**
+     * Track knockback/damage for immunity detection.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityDamage(org.bukkit.event.entity.EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        UUID playerId = player.getUniqueId();
+
+        // Track explosion knockback
+        if (event.getCause() == org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_EXPLOSION ||
+            event.getCause() == org.bukkit.event.entity.EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) {
+            recentKnockback.put(playerId, System.currentTimeMillis());
+        }
+
+        // Track entity attacks (knockback)
+        if (event.getCause() == org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_ATTACK ||
+            event.getCause() == org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK) {
+            recentKnockback.put(playerId, System.currentTimeMillis());
+        }
+
+        recentDamage.put(playerId, System.currentTimeMillis());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerMove(PlayerMoveEvent event) {
+        // Skip if movement checks are disabled
+        if (!config.movementChecksEnabled()) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        // Only check actual position changes (not just head rotation)
+        Location to = event.getTo();
+        Location from = event.getFrom();
+        if (to == null) return;
+        if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) return;
+
+        // PERFORMANCE OPTIMIZATION: Sampling-based throttling
+        // Check only every Nth move OR if significant distance traveled
+        int count = moveCounter.merge(playerId, 1, Integer::sum);
+        double distance = from.distance(to);
+        boolean shouldCheck = (count % Constants.MOVEMENT_SAMPLE_RATE == 0) ||
+                              (distance >= Constants.MOVEMENT_MIN_DISTANCE_THRESHOLD);
+
+        if (!shouldCheck) {
+            return; // Skip this event to reduce CPU usage
+        }
+
+        // Reset counter periodically to prevent overflow
+        if (count > Constants.MOVEMENT_COUNTER_RESET_THRESHOLD) {
+            moveCounter.put(playerId, 0);
+        }
+
+        // Skip checks for exempt players
+        if (isPlayerWhitelisted(player)) {
+            if (config.debugMode()) {
+                plugin.getLogger().fine("[AC] " + player.getName() + " is whitelisted, skipping");
+            }
+            return;
+        }
+
+        // Check OPs bypass
+        if (player.isOp() && config.opsBypass()) {
+            return;
+        }
+
+        if (!player.isOp() && player.hasPermission("performance.anticheat.bypass")) return;
+        if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
+
+        // Determine movement type
+        MovementType moveType = getMovementType(player);
+
+        // Skip certain movement types entirely (they have their own physics)
+        if (moveType == MovementType.ELYTRA || moveType == MovementType.RIPTIDE ||
+            moveType == MovementType.CREATIVE_FLY || moveType == MovementType.MINECART ||
+            moveType == MovementType.BOAT || moveType.name().startsWith("RIDING_") ||
+            moveType == MovementType.OTHER_VEHICLE) {
+            // Reset tracking for these modes
+            lastLocations.put(playerId, to.clone());
+            lastMoveTime.put(playerId, System.currentTimeMillis());
+            return;
+        }
+
+        Location lastLoc = lastLocations.get(playerId);
+        long now = System.currentTimeMillis();
+        Long lastTime = lastMoveTime.get(playerId);
+
+        if (lastLoc != null && lastTime != null && from.getWorld().equals(to.getWorld())) {
+            double timeDelta = (now - lastTime) / 1000.0;
+            // Skip if time delta is too small to avoid division issues
+            // and prevent false positives from rapid tick updates
+            if (timeDelta < Constants.MOVEMENT_MIN_TIME_DELTA) return;
+
+            // IMMUNITY CHECK: Skip if player was recently knocked back or damaged
+            Long lastKnockback = recentKnockback.get(playerId);
+            if (lastKnockback != null && (now - lastKnockback) < KNOCKBACK_IMMUNITY_MS) {
+                if (config.debugMode()) {
+                    plugin.getLogger().fine("[AC] " + player.getName() + " has knockback immunity, skipping check");
+                }
+                return; // Player has knockback immunity
+            }
+
+            // Calculate movement
+            Vector movement = to.toVector().subtract(from.toVector());
+            double horizontalDist = Math.sqrt(movement.getX() * movement.getX() + movement.getZ() * movement.getZ());
+            double verticalDist = Math.abs(movement.getY());
+            double totalDist = from.distance(to);
+
+            // Get max allowed speed for this movement type
+            double maxSpeed = getMaxSpeed(moveType, player);
+            double maxVerticalSpeed = config.flyThreshold();
+
+            // Check for slime block/bubble column (allows faster vertical movement)
+            if (isNearSlimeBlock(to) || isNearBubbleColumn(to)) {
+                maxVerticalSpeed *= 2.0; // Double vertical speed allowance
+            }
+
+            // Check for impossible teleportation-like movement (if enabled)
+            if (config.teleportDetectionEnabled() && totalDist > config.teleportThreshold()) {
+                handleViolation(player, "TELEPORT",
+                    String.format("Teleport-artige Bewegung: %.2f Bloecke", totalDist),
+                    totalDist, to);
+            }
+
+            // Check horizontal speed (if enabled)
+            // This ensures we catch both walking and sprinting violations
+            if (config.speedDetectionEnabled() && horizontalDist > maxSpeed) {
+                int consecutive = consecutiveSpeedViolations.merge(playerId, 1, Integer::sum);
+
+                // Only alert after multiple consecutive violations
+                if (consecutive >= config.speedViolationsThreshold()) {
+                    handleViolation(player, "SPEED",
+                        String.format("Zu schnell (%s): %.2f b/t (Max: %.2f)",
+                            moveType.getDisplayName(), horizontalDist, maxSpeed),
+                        horizontalDist, to);
+                    consecutiveSpeedViolations.put(playerId, 0);
+                }
+            } else {
+                // Reset consecutive count on valid movement (gradual decrease to avoid false negatives)
+                consecutiveSpeedViolations.compute(playerId, (k, v) -> {
+                    if (v == null || v <= 0) return 0;
+                    return Math.max(0, v - 1);
+                });
+            }
+
+            // Check fly/vertical speed (if enabled, only when going up and not near liquid)
+            if (config.flyDetectionEnabled() &&
+                verticalDist > maxVerticalSpeed && movement.getY() > 0 &&
+                !isNearLiquid(player) && !player.hasPotionEffect(PotionEffectType.LEVITATION) &&
+                !player.hasPotionEffect(PotionEffectType.SLOW_FALLING)) {
+
+                int consecutive = consecutiveFlyViolations.merge(playerId, 1, Integer::sum);
+
+                if (consecutive >= config.flyViolationsThreshold()) {
+                    handleViolation(player, "FLY",
+                        String.format("Illegales Fliegen: %.2f b/t (Max: %.2f)", verticalDist, maxVerticalSpeed),
+                        verticalDist, to);
+                    consecutiveFlyViolations.put(playerId, 0);
+                }
+            } else {
+                // Reset fly violations on valid vertical movement
+                consecutiveFlyViolations.compute(playerId, (k, v) -> {
+                    if (v == null || v <= 0) return 0;
+                    return Math.max(0, v - 1);
+                });
+            }
+        }
+
+        lastLocations.put(playerId, to.clone());
+        lastMoveTime.put(playerId, now);
+    }
+
+    private void handleViolation(Player player, String type, String details, double value, Location location) {
+        // Log to database
+        if (database != null) {
+            database.logAsync("anticheat_" + type.toLowerCase(), value, player.getName() + ": " + details);
+        }
+
+        // Use alert manager if available (bundled alerts)
+        if (alertManager != null) {
+            alertManager.addAlert(player, type, details, value, location);
+        } else {
+            // Fallback: direct notification (only in debug mode to console)
+            if (config.debugMode()) {
+                String message = String.format("[AntiCheat] %s: %s - %s", player.getName(), type, details);
+                plugin.getLogger().warning(message);
+            }
+        }
+    }
+
+    private boolean isOnGround(Player player) {
+        Location loc = player.getLocation();
+        return loc.getBlock().getRelative(0, -1, 0).getType().isSolid() || player.isOnGround();
+    }
+
+    private boolean isNearLiquid(Player player) {
+        Location loc = player.getLocation();
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                for (int z = -1; z <= 1; z++) {
+                    Material type = loc.getBlock().getRelative(x, y, z).getType();
+                    if (type == Material.WATER || type == Material.LAVA ||
+                        type == Material.BUBBLE_COLUMN) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if player is near a slime block (allows high bounces).
+     */
+    private boolean isNearSlimeBlock(Location loc) {
+        // Check 2 blocks below for slime blocks
+        Material below1 = loc.getBlock().getRelative(0, -1, 0).getType();
+        Material below2 = loc.getBlock().getRelative(0, -2, 0).getType();
+        return below1 == Material.SLIME_BLOCK || below2 == Material.SLIME_BLOCK;
+    }
+
+    /**
+     * Check if player is in or near a bubble column.
+     */
+    private boolean isNearBubbleColumn(Location loc) {
+        Material at = loc.getBlock().getType();
+        Material below = loc.getBlock().getRelative(0, -1, 0).getType();
+        Material above = loc.getBlock().getRelative(0, 1, 0).getType();
+        return at == Material.BUBBLE_COLUMN || below == Material.BUBBLE_COLUMN || above == Material.BUBBLE_COLUMN;
+    }
+
+    /**
+     * Cleanup player data on disconnect to prevent memory leaks.
+     * Removes all tracking data associated with the player.
+     *
+     * @param playerId UUID of the player to cleanup
+     */
+    public void cleanup(UUID playerId) {
+        lastLocations.remove(playerId);
+        lastMoveTime.remove(playerId);
+        consecutiveSpeedViolations.remove(playerId);
+        consecutiveFlyViolations.remove(playerId);
+        moveCounter.remove(playerId);
+        recentKnockback.remove(playerId);
+        recentDamage.remove(playerId);
+        violations.resetViolations(playerId);
+    }
+
+    /**
+     * Check if player is whitelisted (UUID or LuckPerms group).
+     */
+    public boolean isPlayerWhitelisted(Player player) {
+        // Check UUID whitelist
+        List<String> whitelistPlayers = config.anticheatWhitelistPlayers();
+        if (whitelistPlayers.contains(player.getUniqueId().toString())) {
+            return true;
+        }
+
+        // Check LuckPerms group whitelist
+        if (luckPerms != null) {
+            List<String> whitelistGroups = config.anticheatWhitelistGroups();
+            if (luckPerms.isPlayerInWhitelistedGroup(player, whitelistGroups)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Movement types for detection.
+     * Each type has its own speed threshold.
+     */
+    public enum MovementType {
+        WALKING("Laufen"),
+        SPRINTING("Sprinten"),
+        SNEAKING("Schleichen"),
+        SWIMMING("Schwimmen"),
+        CLIMBING("Klettern"),
+        RIDING_HORSE("Reiten (Pferd)"),
+        RIDING_DONKEY("Reiten (Esel/Maultier)"),
+        RIDING_LLAMA("Reiten (Lama)"),
+        RIDING_CAMEL("Reiten (Kamel)"),
+        RIDING_PIG("Reiten (Schwein)"),
+        RIDING_STRIDER("Reiten (Schreiter)"),
+        BOAT("Boot"),
+        MINECART("Lore"),
+        ELYTRA("Elytra"),
+        RIPTIDE("Dreizack"),
+        CREATIVE_FLY("Kreativ-Flug"),
+        OTHER_VEHICLE("Anderes Fahrzeug");
+
+        private final String displayName;
+
+        MovementType(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+    }
+}

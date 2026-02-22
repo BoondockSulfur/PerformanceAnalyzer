@@ -1,0 +1,375 @@
+# PerformanceAnalyzer - Deutsche Sprachdatei
+# Language: Deutsch (de)
+
+# ===================
+# Allgemeine Nachrichten
+# ===================
+general:
+  no_permission: "&cDafuer hast du keine Berechtigung."
+  player_only: "&cDieser Command ist nur fuer Spieler verfuegbar."
+  player_not_found: "&cSpieler nicht gefunden: %player%"
+  reload_start: "&ePlugin wird neu geladen..."
+  reload_success: "&aPerformanceAnalyzer erfolgreich neu geladen!"
+  reload_error: "&cFehler beim Neuladen: %error%"
+  unknown_error: "&cEin unbekannter Fehler ist aufgetreten."
+
+# ===================
+# Performance Status
+# ===================
+status:
+  title: "&aServer-Performance (Live)"
+  title_spark: "&aServer-Performance &7(via Spark)"
+  tps: "&7TPS (approx): &f%value%"
+  tps_spark: "&7TPS: &f%tps10s% &7(10s) | &f%tps1m% &7(1m) | &f%tps5m% &7(5m)"
+  mspt_avg: "&7MSPT avg/p95: &f%avg% / %p95% ms"
+  mspt_spark: "&7MSPT: &f%avg% &7avg | &f%p95% &7p95 | &f%max% &7max"
+  heap: "&7Heap-Nutzung: &f%value%%"
+  cpu: "&7CPU: &f%system%%&7 System | &f%process%%&7 Prozess"
+  alert_title: "&cAchtung!"
+  alert_message: "&7Leicht erhoehte Latenz/Heap."
+
+# ===================
+# Performance History
+# ===================
+history:
+  title: "&aPerformance-Verlauf (letzte %minutes% Minuten)"
+  title_spark: "&aPerformance-Verlauf &7(via Spark, letzte %minutes% Minuten)"
+  invalid_time: "&cUngueltige Zeitangabe. Nutze: /perfhistory [Minuten]"
+  mspt_history: "&7MSPT-Verlauf: &f%sparkline%"
+  live_avg: "&7Live - Durchschnitt: &f%value% ms"
+  live_tps: "&7Live TPS: &f%tps10s% &7(10s) | &f%tps1m% &7(1m) | &f%tps5m% &7(5m)"
+  db_avg: "&7DB (%minutes% min) - Durchschnitt: &f%value% ms"
+  spikes_warning: "&eAchtung: &f%count% Performance-Spikes ueber %threshold% ms"
+
+# ===================
+# AntiCheat Whitelist
+# ===================
+acwhitelist:
+  header: "&a&m-----&r &aAntiCheat Whitelist &a&m-----"
+  footer: "&a&m------------------------"
+  help_title: "&a&lAntiCheat Whitelist"
+  help_add_player: "&7/acwhitelist add <player> &f- Spieler hinzufuegen"
+  help_add_group: "&7/acwhitelist add group:<name> &f- Gruppe hinzufuegen"
+  help_remove_player: "&7/acwhitelist remove <player> &f- Spieler entfernen"
+  help_remove_group: "&7/acwhitelist remove group:<name> &f- Gruppe entfernen"
+  help_list: "&7/acwhitelist list &f- Whitelist anzeigen"
+  usage_add: "&cNutze: /acwhitelist add <player|group:Gruppenname>"
+  usage_remove: "&cNutze: /acwhitelist remove <player|group:Gruppenname>"
+  group_added: "&aGruppe &f%group% &azur AntiCheat-Whitelist hinzugefuegt."
+  group_removed: "&aGruppe &f%group% &avon AntiCheat-Whitelist entfernt."
+  player_added: "&aSpieler &f%player% &azur AntiCheat-Whitelist hinzugefuegt."
+  player_removed: "&aSpieler &f%player% &avon AntiCheat-Whitelist entfernt."
+  players_label: "&7Spieler:"
+  players_none: "&7Spieler: &cKeine"
+  player_entry: "  &f- %player%"
+  player_invalid: "  &f- %uuid% &c(ungueltig)"
+  groups_label: "&7Gruppen:"
+  groups_none: "&7Gruppen: &cKeine"
+  group_entry: "  &f- %group%"
+
+# ===================
+# XRay Alerts
+# ===================
+xray:
+  disabled: "&c[XRay] AntiCheat-Modul ist deaktiviert!"
+  disabled_hint: "&7Aktiviere es in config.yml: &fanticheat_enabled: true"
+  alerts_cleared_all: "&aAlle XRay-Alerts wurden geloescht."
+  alerts_cleared_player: "&aAlerts fuer &f%player% &awurden geloescht."
+  no_suspicious: "&aKeine verdaechtigen Spieler gefunden."
+  list_header: "&e&l--- XRay Verdaechtige Spieler ---"
+  status_online: "&a[Online]"
+  status_offline: "&7[Offline]"
+  list_entry: "%status% &f%player% &7- &c%count% Alerts &7| &e/xrayalerts %player%"
+  list_hint_details: "&7Nutze &f/xrayalerts <spieler> &7fuer Details."
+  list_hint_clear: "&7Nutze &f/xrayalerts clear <spieler> &7zum Loeschen."
+  detail_header: "&e&l--- XRay Alerts: %player% ---"
+  detail_hint_clear: "&7Nutze &f/xrayalerts clear %player% &7zum Loeschen."
+  no_alerts_player: "&7Keine Alerts fuer diesen Spieler."
+  alert_entry: "&7[%time%] &e%type%: &f%message% &7(%count% Erze)"
+  ores_label: "  &7Erze: &f%ores%"
+  locations_label: "  &7Positionen:"
+  location_entry: "    &8- &f%location%"
+  admin_alert: "&e[XRay] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/xrayalerts %player% &efuer Details"
+
+# ===================
+# XRay Ores
+# ===================
+xrayores:
+  help_header: "&e&l--- XRay Erz-Ausnahmen ---"
+  help_list: "&7/xrayores list &f- Ausgenommene Erze anzeigen"
+  help_available: "&7/xrayores available &f- Verfuegbare Erze anzeigen"
+  help_add: "&7/xrayores add <erz> &f- Erz ausschliessen"
+  help_remove: "&7/xrayores remove <erz> &f- Erz wieder tracken"
+  usage_add: "&cVerwendung: /xrayores add <erz>"
+  usage_remove: "&cVerwendung: /xrayores remove <erz>"
+  list_header: "&e&l--- Ausgenommene Erze ---"
+  list_none: "&7Keine Erze ausgenommen. Alle werden getrackt."
+  list_entry: "&a- &f%ore%"
+  list_hint: "&7Nutze &f/xrayores available &7fuer alle verfuegbaren Erze."
+  available_header: "&e&l--- Verfuegbare Erze ---"
+  available_excluded: "&c[Ausgenommen]"
+  available_tracked: "&a[Getrackt]"
+  unknown_ore: "&cUnbekanntes Erz: %ore%"
+  unknown_ore_hint: "&7Nutze &f/xrayores available &7fuer gueltige Erze."
+  invalid_ore: "&cUngueltiges Erz: %ore%"
+  already_excluded: "&e%ore% ist bereits ausgenommen."
+  added: "&a%ore% wurde zur Ausnahmeliste hinzugefuegt."
+  added_hint: "&7Deepslate-Variante wird automatisch mitausgenommen."
+  not_excluded: "&e%ore% ist nicht in der Ausnahmeliste."
+  removed: "&a%ore% wurde von der Ausnahmeliste entfernt."
+
+# ===================
+# XRay Detection Messages
+# ===================
+xray_detection:
+  threshold_exceeded: "[XRay?] %player%: Schwellenwert ueberschritten in %time%s - %location%"
+  suspicious_ratio: "[XRay?] %player%: Verdaechtiges Erz/Stein-Verhaeltnis: %.2f%% (%ores% Erze, %stone% Steine) - %location%"
+  rare_ores_exceeded: "[XRay?] %player%: Seltene Erze ueberschritten in %time%s! - %location%"
+  unknown_location: "Unbekannt"
+  location_format: "Welt: %world%, Bereich: X[%minX%-%maxX%] Y[%minY%-%maxY%] Z[%minZ%-%maxZ%]"
+  location_entry: "%ore% @ %world% [%x%, %y%, %z%]"
+
+# ===================
+# Alerts
+# ===================
+alerts:
+  type_high_mspt: "Hohe MSPT"
+  type_high_heap: "Hoher Heap-Verbrauch"
+  type_tps_drop: "TPS-Einbruch"
+  type_packet_flood: "Paket-Flut"
+  type_anticheat: "AntiCheat-Warnung"
+  format: "&c[Performance Alert] &e%type%: &f%message% (Wert: %value%)"
+
+# ===================
+# GUI - Hauptmenue
+# ===================
+gui:
+  main_title: "&aPerformance Analyzer"
+  live_performance: "&aLive Performance"
+  live_performance_lore1: "&7TPS, MSPT, Heap-Nutzung"
+  live_performance_lore2: "&eKlicken zum Aktualisieren"
+  settings: "&eEinstellungen"
+  settings_lore1: "&7Plugin-Konfiguration"
+  settings_lore2: "&cNur fuer Admins"
+  anticheat: "&cAntiCheat"
+  anticheat_lore1: "&7AntiCheat-Status & Whitelist"
+  anticheat_lore2: "&eKlicken fuer Details"
+  reload: "&6Plugin Neu Laden"
+  reload_lore: "&7Konfiguration neu laden"
+  close: "&cSchliessen"
+  close_lore: "&7GUI schliessen"
+  back: "&7Zurueck"
+  back_lore: "&eZum Hauptmenue"
+  data_refreshed: "&aDaten aktualisiert!"
+
+# ===================
+# GUI - Performance Stats
+# ===================
+gui_stats:
+  tps: "&7TPS: &f%.2f"
+  mspt_avg: "&7MSPT (avg): &f%.2f ms"
+  mspt_p95: "&7MSPT (p95): &f%.2f ms"
+  heap: "&7Heap: &f%.1f%%"
+
+# ===================
+# GUI - Config
+# ===================
+gui_config:
+  title: "&eKonfiguration"
+  anticheat: "&cAntiCheat"
+  anticheat_lore: "&7Aktiviert/Deaktiviert AntiCheat"
+  click_toggle: "&eKlicken zum Umschalten"
+  xray_detection: "&bXRay-Erkennung"
+  xray_detection_lore: "&7Aktiviert/Deaktiviert XRay-Detection"
+  packet_analysis: "&dPaket-Analyse"
+  packet_analysis_lore: "&7Aktiviert/Deaktiviert Paket-Analyse"
+  packet_analysis_hint: "&eErfordert ProtocolLib"
+  discord_webhook: "&9Discord Webhook"
+  discord_webhook_lore: "&7Aktiviert/Deaktiviert Discord-Benachrichtigungen"
+  setting_changed: "&aEinstellung geaendert: &f%setting%"
+  status_enabled: "&aAktiviert"
+  status_disabled: "&cDeaktiviert"
+  status_format: "&7Status: %status%"
+
+# ===================
+# GUI - AntiCheat
+# ===================
+gui_anticheat:
+  title: "&cAntiCheat Status"
+  status_item: "&cAntiCheat Status"
+  status_lore: "&7Status: %status%"
+  whitelist_players_lore: "&7Whitelist Spieler: &f%count%"
+  whitelist_groups_lore: "&7Whitelist Gruppen: &f%count%"
+  whitelist_players: "&eWhitelist Spieler"
+  whitelist_players_count: "&7Anzahl: &f%count%"
+  whitelist_hint1: "&7Nutze &f/acwhitelist list"
+  whitelist_hint2: "&7um Details zu sehen"
+  whitelist_groups: "&eWhitelist Gruppen"
+  xray_detection: "&bXRay-Erkennung"
+  xray_timewindow: "&7Zeitfenster: &f%seconds%s"
+  xray_thresholds: "&7Schwellenwerte: &fPer-Erz (config.yml)"
+  xray_diamond_threshold: "&8Diamond: %value%"
+
+# ===================
+# Konsolen/Debug Nachrichten
+# ===================
+console:
+  xray_unknown_ore: "[XRay] Unbekanntes Erz in Ausnahmeliste: %ore%"
+  xray_excluded_ores: "[XRay] Ausgenommene Erze: %ores%"
+  xray_detection_disabled: "[XRay] Detection deaktiviert, ignoriere Event"
+  xray_player_whitelisted: "[XRay] Spieler %player% ist whitelisted/bypass, ignoriere"
+  xray_player_mined: "[XRay] %player% mined %ore% | Count: %count%/%threshold% | Total ores in window: %total% | Cleaned: %cleaned%"
+  xray_excluded_ore_mined: "[XRay] %player% mined excluded ore: %ore%"
+  xray_no_threshold: "[XRay] %player% - Kein Schwellenwert ueberschritten. Breakdown: %breakdown%"
+  xray_op_bypass: "[XRay] %player% ist OP und ops_bypass=true -> uebersprungen"
+  xray_op_checked: "[XRay] %player% ist OP aber ops_bypass=false -> wird geprueft!"
+  xray_bypass_permission: "[XRay] %player% hat bypass Permission -> uebersprungen"
+  xray_luckperms_whitelist: "[XRay] %player% ist in LuckPerms whitelist Gruppe -> uebersprungen"
+  discord_disabled: "[Discord] Webhook deaktiviert (discord.enabled: false)"
+  discord_url_empty: "[Discord] Webhook URL ist leer! Bitte in config.yml konfigurieren."
+  discord_alert_disabled: "[Discord] Alert-Typ '%type%' ist deaktiviert"
+  discord_sending: "[Discord] Sende Alert: %type%"
+  discord_success: "[Discord] Alert erfolgreich gesendet!"
+  discord_failed: "[Discord] Webhook fehlgeschlagen: %error%"
+  anticheat_enabled: "AntiCheat-Modul wurde aktiviert!"
+  anticheat_disabled: "AntiCheat-Modul ist DEAKTIVIERT (anticheat_enabled: false in config.yml)"
+  anticheat_reloaded: "AntiCheat-Einstellungen wurden neu geladen."
+  anticheat_disabled_on_reload: "AntiCheat-Modul wurde deaktiviert. (Vollstaendige Deaktivierung erfordert Server-Neustart)"
+
+# ===================
+# Movement Alerts
+# ===================
+movement:
+  disabled: "&c[Movement] AntiCheat-Modul ist deaktiviert!"
+  disabled_hint: "&7Aktiviere es in config.yml: &fanticheat_enabled: true"
+  alerts_cleared_all: "&aAlle Movement-Alerts wurden geloescht."
+  alerts_cleared_player: "&aAlerts fuer &f%player% &awurden geloescht."
+  no_suspicious: "&aKeine verdaechtigen Spieler gefunden."
+  list_header: "&e&l--- Movement Verdaechtige Spieler ---"
+  status_online: "&a[Online]"
+  status_offline: "&7[Offline]"
+  list_entry: "%status% &f%player% &7- &c%count% Alerts &7| &e/movealerts %player%"
+  list_hint_details: "&7Nutze &f/movealerts <spieler> &7fuer Details."
+  list_hint_clear: "&7Nutze &f/movealerts clear <spieler> &7zum Loeschen."
+  detail_header: "&e&l--- Movement Alerts: %player% ---"
+  detail_hint_clear: "&7Nutze &f/movealerts clear %player% &7zum Loeschen."
+  no_alerts_player: "&7Keine Alerts fuer diesen Spieler."
+  alert_entry: "&7[%time%] &e%type%: &f%details%"
+  alert_value: "  &7Wert: &f%.2f &7| Position: &f%location%"
+  admin_alert: "&e[AntiCheat] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/movealerts %player% &efuer Details"
+  admin_alert_detail: "&7  Typ: %type% | Wert: %.2f | Position: %location%"
+  type_speed: "Geschwindigkeit"
+  type_fly: "Fliegen"
+  type_teleport: "Teleport"
+  movement_type_walking: "Laufen"
+  movement_type_sprinting: "Sprinten"
+  movement_type_sneaking: "Schleichen"
+  movement_type_swimming: "Schwimmen"
+  movement_type_climbing: "Klettern"
+  movement_type_riding_horse: "Reiten (Pferd)"
+  movement_type_riding_pig: "Reiten (Schwein)"
+  movement_type_riding_strider: "Reiten (Schreiter)"
+  movement_type_boat: "Boot"
+  movement_type_minecart: "Lore"
+  movement_type_elytra: "Elytra"
+  movement_type_riptide: "Dreizack"
+  movement_type_creative_fly: "Kreativ-Flug"
+  movement_type_other_vehicle: "Anderes Fahrzeug"
+
+# ===================
+# Welt-Statistiken
+# ===================
+worldstats:
+  header: "&a&m-----&r &aWelt-Statistiken &a&m-----"
+  environment_normal: "Oberwelt"
+  environment_nether: "Nether"
+  environment_the_end: "Das Ende"
+  environment_custom: "Benutzerdefiniert"
+  server_summary: "&7Welten: &f%worlds% &7| Entities: &f%entities% &7| Chunks: &f%chunks% &7| Tiles: &f%tiles%"
+  avg_density: "&7Durchschn. Entity-Dichte: &f%density% &7pro Chunk"
+  world_entry: "%status%&f%world% &7(%type%) - Entities: &f%entities% &7| Chunks: &f%chunks% &7| Dichte: &f%density%"
+  hint_details: "&7Nutze &f/worldstats <welt> &7fuer Details."
+  world_not_found: "&cWelt nicht gefunden: %world%"
+  detail_header: "&a&m-----&r &aWelt: %world% &a&m-----"
+  detail_type: "&7Typ: &f%type%"
+  detail_entities: "&7Entities: &f%count%"
+  detail_players: "&7Spieler: &f%count%"
+  detail_chunks: "&7Geladene Chunks: &f%count%"
+  detail_tiles: "&7Block-Entities: &f%count%"
+  detail_density: "&7Entity-Dichte: &f%density% &7pro Chunk"
+  top_entities: "&7&lTop Entity-Typen:"
+  entity_entry: "  &f%type%: &e%count%"
+  hotspots: "&c&lEntity-Hotspots:"
+  hotspot_entry: "  &f[%x%, %z%] &7- Entities: &e%entities% &7| Tiles: &e%tiles%"
+
+# ===================
+# Entity-Statistiken
+# ===================
+entitystats:
+  header: "&a&m-----&r &aEntity-Analyse &a&m-----"
+  total: "&7Entities gesamt: &f%count%"
+  by_category: "&7&lNach Kategorie:"
+  category_entry: "  &f%category%: &e%count%"
+  category_player: "Spieler"
+  category_hostile: "Feindlich"
+  category_passive: "Passiv"
+  category_water: "Wassermobs"
+  category_ambient: "Ambient"
+  category_item: "Items"
+  category_xp_orb: "XP-Orbs"
+  category_projectile: "Projektile"
+  category_vehicle: "Fahrzeuge"
+  category_decoration: "Dekoration"
+  category_other: "Andere"
+  severity_warning: "&e[WARNUNG]"
+  severity_critical: "&c[KRITISCH]"
+  top_entities: "&7&lTop Entity-Typen:"
+  entity_entry: "  &f%type%: &e%count%"
+  hotspot_preview: "&c%count% Hotspots erkannt!"
+  hint_hotspots: "&7Nutze &f/entitystats hotspots &7fuer Details."
+  world_header: "&a&m-----&r &aWelt: %world% &a&m-----"
+  world_status: "&7Status: %status%"
+  status_healthy: "Gesund"
+  status_warning: "Warnung"
+  status_critical: "Kritisch"
+  no_hotspots: "&aKeine Entity-Hotspots gefunden."
+  hotspots_header: "&c&m-----&r &cEntity-Hotspots &c&m-----"
+  hotspot_entry: "%severity% &f%world% &7[%x%, %z%] &7- &e%count% Entities"
+  hotspot_dominant: "  &7Dominant: &f%type% &7(%count%x)"
+
+# ===================
+# Chunk-Statistiken
+# ===================
+chunkstats:
+  header: "&a&m-----&r &aChunk-Statistiken &a&m-----"
+  total_loaded: "&7Geladene Chunks: &f%count%"
+  force_loaded: "&7Force-geladene Chunks: &f%count%"
+  loads_minute: "&7Ladevorgaenge/Minute: &f%count%"
+  total_loads: "&7Ladevorgaenge (Sitzung): &f%count%"
+  total_unloads: "&7Entladevorgaenge (Sitzung): &f%count%"
+  per_world: "&7&lPro Welt:"
+  world_entry: "  &f%world%: &e%loaded% &7geladen | &e%force% &7force | &e%generated% &7neu"
+  hint_problems: "&7Nutze &f/chunkstats problems &7fuer problematische Chunks."
+  hint_frequent: "&7Nutze &f/chunkstats frequent &7fuer Chunk-Thrashing."
+  no_problems: "&aKeine problematischen Chunks gefunden."
+  problems_header: "&c&m-----&r &cProblematische Chunks &c&m-----"
+  problem_entry: "&f%world% &7[%x%, %z%] %status%"
+  problem_details: "  &7Typ: &f%type% &7| Entities: &e%entities% &7| Tiles: &e%tiles%"
+  type_tiles: "Viele Block-Entities"
+  type_entities: "Viele Entities"
+  force_status: "&c[FORCE]"
+  no_frequent: "&aKein Chunk-Thrashing erkannt."
+  frequent_header: "&e&m-----&r &eChunk-Thrashing &e&m-----"
+  frequent_info: "&7Diese Chunks werden haeufig ge-/entladen - kann auf Performance-Probleme hinweisen."
+  frequent_entry: "&f%world% &7[%x%, %z%] - &e%loads% Ladevorgaenge"
+  frequent_details: "  &7Max Entities: &e%entities% &7| Max Tiles: &e%tiles%"
+  cleared: "&aChunk-Tracking-Verlauf geloescht."
+
+# ===================
+# Sperrgebiete (Restricted Zones)
+# ===================
+restricted_zone:
+  alert_title: "&c&l[SPERRGEBIET-ALARM]"
+  alert_message: "&c%player% &7hat &e%ore% &7in Sperrgebiet &c%world% &7abgebaut!"
+  alert_location: "&7Koordinaten: &f[%x%, %y%, %z%]"
+  alert_admin: "&c&lSPERRGEBIET: &f%player% &7-> &e%ore% &7in &c%world% &7[%x%, %y%, %z%]"

@@ -1,0 +1,242 @@
+# PerformanceAnalyzer Configuration
+# Plugin for monitoring and analyzing server performance
+
+# Language Setting
+# Available: en (English), de (German)
+language: en
+
+# Database Configuration
+database:
+  # Database type: 'sqlite' or 'mysql'
+  type: sqlite
+
+  # SQLite settings (only relevant when type: sqlite)
+  sqlite_file: "plugins/PerformanceAnalyzer/perf.db"
+
+  # MySQL settings (only relevant when type: mysql)
+  host: localhost
+  port: 3306
+  name: performance
+  user: perfuser
+  password: ""
+
+  # Connection Pool Settings (HikariCP)
+  pool:
+    max_pool_size: 10
+    minimum_idle: 2
+    connection_timeout_ms: 10000
+
+# Performance Monitoring Settings
+performance:
+  # How often should metrics be written to the database? (in seconds)
+  log_interval_seconds: 60
+
+  # Enable profiling (for future Spark integration)
+  enable_profiling: true
+
+  # Packet analysis via ProtocolLib (requires ProtocolLib plugin)
+  packet_analysis: true
+
+  # Enable AntiCheat module (BETA - can produce false positives!)
+  # Recommendation: For production use Matrix, Vulcan or Spartan instead
+  # NOTE: Disabled by default - must be consciously enabled
+  anticheat_enabled: false
+
+  # Debug mode: Enables detailed console output
+  # Only enable for troubleshooting, otherwise logs become too verbose
+  debug_mode: false
+
+# Lag Analysis Settings (v2.0.0+)
+lag_analysis:
+  # Enable player activity tracking
+  # Tracks block interactions, movements, commands, etc.
+  # PERFORMANCE: Uses sampling (only every 10th movement)
+  # Can be disabled on servers with extremely many players
+  player_tracking: true
+
+  # Enable plugin performance analysis
+  # Identifies plugins with many event listeners and tasks
+  # Has minimal performance impact
+  plugin_analysis: true
+
+  # Timeout for chunk analysis in milliseconds
+  # Prevents chunk analysis from taking too long with many chunks
+  # Recommended: 5000ms (5 seconds)
+  chunk_analysis_timeout_ms: 5000
+
+  # ====== Thresholds for Problematic Chunks ======
+  # When is a chunk considered "problematic"?
+  # Adjust these values to your server hardware!
+
+  # Tile Entities per Chunk (hoppers, furnaces, chests, etc.)
+  # Warning: Too many block entities cause lag
+  # Standard: 10 | Powerful servers: 20-30 | Weak servers: 5-8
+  chunk_tile_entities_threshold: 10
+
+  # Redstone components per chunk (estimated)
+  # Warning: Lots of redstone = many block updates
+  # Standard: 30 | Powerful servers: 50-100 | Weak servers: 15-20
+  chunk_redstone_threshold: 30
+
+  # Entities per Chunk (animals, monsters, items, etc.)
+  # WARNING level: From this number, chunk is marked as "Warning"
+  # Standard: 50 | Powerful servers: 80-100 | Weak servers: 30-40
+  chunk_entity_warning: 50
+
+  # Entities per Chunk - CRITICAL level
+  # CRITICAL level: From this number, chunk is marked as "Critical"
+  # Standard: 100 | Powerful servers: 150-200 | Weak servers: 60-80
+  chunk_entity_critical: 100
+
+  # ====== Thresholds for World Health ======
+  # When is an entire world considered problematic?
+
+  # Total Entities per World - WARNING
+  # Standard: 5000 | Large servers: 10000+ | Small servers: 2000-3000
+  world_entity_warning: 5000
+
+  # Total Entities per World - CRITICAL
+  # Standard: 10000 | Large servers: 20000+ | Small servers: 5000-7000
+  world_entity_critical: 10000
+
+  # ====== Plugin Risk Score Interpretation ======
+  # At what risk score is a plugin considered suspicious?
+  # Risk Score = (Event Listeners * 2) + (Scheduled Tasks * 3)
+  # For "Heavy Plugins" the score is multiplied by 2
+
+  # Low-Risk Plugin (green in reports)
+  # Standard: 0-50
+  plugin_risk_low: 50
+
+  # Medium-Risk Plugin (yellow in reports)
+  # Standard: 51-100
+  plugin_risk_medium: 100
+
+  # High-Risk Plugin (red in reports)
+  # Standard: 101+
+  # (Everything above plugin_risk_medium is considered high)
+
+# AntiCheat Settings
+anticheat:
+  # ====== Individual AntiCheat Features ======
+  # Each feature can be independently enabled/disabled
+
+  # Enable XRay detection
+  xray_detection: true
+
+  # Enable movement checks (Speed/Fly/Teleport)
+  movement_checks: true
+
+  # Speed hack detection (horizontal movement)
+  speed_detection: true
+
+  # Fly hack detection (vertical movement)
+  fly_detection: true
+
+  # Detect teleport-like movements
+  teleport_detection: true
+
+  # Time window for XRay detection (in seconds)
+  xray_timewindow_seconds: 60
+
+  # Ores excluded from XRay detection
+  # Available: COAL_ORE, IRON_ORE, COPPER_ORE, GOLD_ORE, REDSTONE_ORE, LAPIS_ORE, DIAMOND_ORE, EMERALD_ORE, ANCIENT_DEBRIS
+  # (DEEPSLATE_ variants also possible)
+  xray_excluded_ores: []
+
+  # Restricted zones: Worlds where alerts are triggered immediately
+  # If a player mines defined ores in these worlds, alerts are triggered IMMEDIATELY
+  # Format: List of world names (exact match required)
+  restricted_worlds: []
+  # Example: ["world_nether", "mining_world"]
+
+  # Ores monitored in restricted zones
+  # If empty, ALL valuable ores are monitored
+  # Format: List of ore names (e.g. DIAMOND_ORE, EMERALD_ORE, etc.)
+  restricted_world_ores: []
+  # Example: ["DIAMOND_ORE", "EMERALD_ORE", "ANCIENT_DEBRIS"]
+
+  # Per-ore thresholds for XRay suspicion
+  # How many ores must be mined in a short time to suspect XRay?
+  # Rare ores (Ancient Debris, Emerald) need fewer, common ones (Coal, Iron) need more
+  xray_thresholds:
+    coal: 20
+    iron: 15
+    copper: 15
+    gold: 10
+    redstone: 10
+    lapis: 8
+    diamond: 6
+    emerald: 4
+    ancient_debris: 3
+
+  # Ore-to-stone ratio threshold (0.0 - 1.0)
+  # Normal mining: 2-5% ores (0.02-0.05)
+  # Suspicious: > 10% ores (> 0.10)
+  xray_stone_ore_ratio: 0.10
+
+  # Should OPs automatically bypass AntiCheat checks?
+  # WARNING: If true, OPs will NOT be checked for XRay!
+  # Set to false to also check OPs
+  ops_bypass: false
+
+  # Whitelist: Player UUIDs excluded from AntiCheat checks
+  # Format: ["uuid1", "uuid2"]
+  whitelist_players: []
+
+  # LuckPerms groups excluded from AntiCheat
+  # Format: ["admin", "moderator"]
+  whitelist_groups: []
+
+  # Movement/Speed Detection Thresholds
+  # Values are in blocks per tick (higher = more tolerant)
+  speed_thresholds:
+    walk: 0.5           # Max speed while walking
+    sprint: 1.0         # Max speed while sprinting
+    fly: 1.5            # Max speed for creative flight
+    vertical: 3.5       # Max vertical speed (fly hack detection)
+    teleport: 15.0      # Distance that counts as teleport-like movement
+    violations_before_alert: 5    # Consecutive violations before alerting (speed)
+    fly_violations_before_alert: 10  # Consecutive violations before alerting (fly)
+
+# Warning Thresholds
+thresholds:
+  # MSPT threshold for warnings (milliseconds per tick)
+  # Standard: 50ms (anything above is considered problematic)
+  mspt: 50.0
+
+  # Heap usage threshold (percent)
+  # Standard: 80% (above becomes critical)
+  heap_usage_percent: 80.0
+
+  # Packet flood threshold (packets per tick)
+  # Standard: 1000 (may indicate DDoS or lag machine)
+  # Set to 0 to disable
+  packet_flood_per_tick: 1000.0
+
+  # TPS drop threshold (when to warn about TPS drops)
+  # Standard: 19.0 (anything below is considered problematic)
+  tps_drop: 19.0
+
+# Discord Webhook for Notifications
+discord:
+  # Enable Discord notifications
+  enabled: false
+
+  # Discord Webhook URL
+  # Create a webhook in your Discord channel: Server Settings → Integrations → Webhooks
+  webhook_url: ""
+
+  # Which alerts should be sent to Discord?
+  alert_types:
+    high_mspt: true
+    tps_drop: true
+    high_heap: true
+    packet_flood: true
+    anticheat: true
+
+# Messages (supports color codes with &)
+messages:
+  no_permission: "&cYou don't have permission for this."
+  status_title: "&aServer Performance (Live)"
+  history_title: "&aPerformance History"

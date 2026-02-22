@@ -1,0 +1,87 @@
+name: PerformanceAnalyzer
+version: 2.2.0
+main: dev.boondock.performanceanalyzer.PerformanceAnalyzer
+api-version: '1.21'
+author: BoondockSulfur
+softdepend:
+  - ProtocolLib
+  - spark
+  - LuckPerms
+
+commands:
+  perfstatus:
+    description: Shows live server performance data.
+    usage: /perfstatus
+    permission: performance.status
+  perfhistory:
+    description: Shows aggregated performance data (last hour).
+    usage: /perfhistory [minutes]
+    permission: performance.history
+  perfgui:
+    description: Opens the performance GUI.
+    usage: /perfgui
+    permission: performance.gui
+  perfreload:
+    description: Reloads the plugin configuration.
+    usage: /perfreload
+    permission: performance.admin
+  acwhitelist:
+    description: Manages the AntiCheat whitelist.
+    usage: /acwhitelist <add|remove|list> [player]
+    permission: performance.anticheat.manage
+    aliases: [acwl]
+  xrayalerts:
+    description: Shows XRay suspicion alerts.
+    usage: /xrayalerts [player|clear|clearall]
+    permission: performance.admin
+    aliases: [xra]
+  xrayores:
+    description: Manages XRay ore exclusions.
+    usage: /xrayores <list|available|add|remove> [ore]
+    permission: performance.anticheat.manage
+    aliases: [xro]
+  movealerts:
+    description: Shows movement/speed/fly suspicion alerts.
+    usage: /movealerts [player|clear|clearall]
+    permission: performance.admin
+    aliases: [mva]
+  worldstats:
+    description: Shows per-world statistics.
+    usage: /worldstats [worldname]
+    permission: performance.admin
+    aliases: [ws]
+  entitystats:
+    description: Shows entity analysis.
+    usage: /entitystats [worldname|hotspots]
+    permission: performance.admin
+    aliases: [es]
+  chunkstats:
+    description: Shows chunk statistics.
+    usage: /chunkstats [problems|frequent|clear]
+    permission: performance.admin
+    aliases: [cs]
+  perfdrops:
+    description: Shows recent performance drops and their causes.
+    usage: /perfdrops [number|clear]
+    permission: performance.admin
+    aliases: [pd, drops]
+
+permissions:
+  performance.status:
+    description: Allows viewing the live status.
+    default: true
+  performance.history:
+    description: Allows viewing the history graph/stats.
+    default: true
+  performance.gui:
+    description: Allows opening the performance GUI.
+    default: true
+  performance.admin:
+    description: Admin tasks (reload, debug, etc.).
+    default: op
+  performance.anticheat.manage:
+    description: Allows managing the AntiCheat whitelist.
+    default: op
+  performance.anticheat.bypass:
+    description: Bypasses all AntiCheat checks (WARNING - OPs have this permission automatically!)
+    default: false
