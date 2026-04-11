@@ -15,7 +15,7 @@ public class AsyncConfigSaver {
 
     private final JavaPlugin plugin;
     private final AtomicBoolean isSaving = new AtomicBoolean(false);
-    private volatile boolean pendingSave = false;
+    private final AtomicBoolean pendingSave = new AtomicBoolean(false);
 
     public AsyncConfigSaver(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -31,10 +31,10 @@ public class AsyncConfigSaver {
      * @return CompletableFuture that completes when save is done
      */
     public CompletableFuture<Void> saveAsync() {
-        // Mark that a save is pending
-        pendingSave = true;
+        // Mark that a save is requested
+        pendingSave.set(true);
 
-        // If already saving, return existing operation
+        // If already saving, the running save will pick up the pending flag
         if (!isSaving.compareAndSet(false, true)) {
             plugin.getLogger().fine("[Config] Save already in progress, will save again after completion");
             return CompletableFuture.completedFuture(null);
@@ -45,13 +45,15 @@ public class AsyncConfigSaver {
         // Schedule save on main thread (Bukkit's saveConfig is NOT thread-safe!)
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             try {
+                // Reset pending flag before saving — any new request after this
+                // point will set it again and trigger a follow-up save
+                pendingSave.set(false);
                 plugin.saveConfig();
                 plugin.getLogger().fine("[Config] Configuration saved successfully");
 
                 // Check if another save was requested during this save
-                if (pendingSave) {
-                    pendingSave = false;
-                    // Schedule another save if needed
+                if (pendingSave.compareAndSet(true, false)) {
+                    // Schedule follow-up save
                     plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                         plugin.saveConfig();
                     }, 20L); // 1 second delay

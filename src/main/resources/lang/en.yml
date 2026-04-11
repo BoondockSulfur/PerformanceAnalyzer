@@ -89,6 +89,8 @@ xray:
   ores_label: "  &7Ores: &f%ores%"
   locations_label: "  &7Positions:"
   location_entry: "    &8- &f%location%"
+  db_cleared: "&aDB entries for &f%player% &adeleted. &7(%count% entries removed)"
+  db_clear_hint: "&7To also delete DB entries: &f/xrayalerts clear %player% --db"
   admin_alert: "&e[XRay] &cSuspicious player: &f%player% &e- Use &f/xrayalerts %player% &efor details"
 
 # ===================
@@ -256,6 +258,8 @@ movement:
   no_alerts_player: "&7No alerts for this player."
   alert_entry: "&7[%time%] &e%type%: &f%details%"
   alert_value: "  &7Value: &f%.2f &7| Position: &f%location%"
+  db_cleared: "&aDB entries for &f%player% &adeleted. &7(%count% entries removed)"
+  db_clear_hint: "&7To also delete DB entries: &f/movealerts clear %player% --db"
   admin_alert: "&e[AntiCheat] &cSuspicious player: &f%player% &e- Use &f/movealerts %player% &efor details"
   admin_alert_detail: "&7  Type: %type% | Value: %.2f | Position: %location%"
   type_speed: "Speed"
@@ -364,6 +368,24 @@ chunkstats:
   frequent_entry: "&f%world% &7[%x%, %z%] - &e%loads% loads"
   frequent_details: "  &7Max entities: &e%entities% &7| Max tiles: &e%tiles%"
   cleared: "&aChunk tracking history cleared."
+
+# ===================
+# Silent Mode / Streamer Mode
+# ===================
+silent:
+  all_muted: "&a[Silent Mode] &fAll alerts muted. Use &e/perfsilent &fto re-enable."
+  all_unmuted: "&a[Silent Mode] &fAll alerts re-enabled."
+  category_muted: "&a[Silent Mode] &f%category% &7alerts muted."
+  category_unmuted: "&a[Silent Mode] &f%category% &7alerts re-enabled."
+  unknown_type: "&cUnknown alert type: %type%"
+  available_types: "&7Available types: &fall, xray, movement, performance"
+  list_header: "&e&l--- Alert Preferences ---"
+  receiving_all: "&a  You are receiving all alerts."
+  status_all_muted: "&c  All alerts are muted. Use &f/perfsilent &cto re-enable."
+  status_muted: "Muted"
+  status_active: "Active"
+  list_hint: "&7Use &f/perfsilent <type> &7to toggle individual types."
+  reset: "&a[Silent Mode] &fAll preferences reset. You are receiving all alerts again."
 
 # ===================
 # Restricted Zones

@@ -1,6 +1,7 @@
 package dev.boondock.performanceanalyzer.anticheat;
 
 import dev.boondock.performanceanalyzer.alerts.AlertManager;
+import dev.boondock.performanceanalyzer.alerts.AlertPreferenceManager;
 import dev.boondock.performanceanalyzer.alerts.DiscordWebhook;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
 import org.bukkit.Bukkit;
@@ -29,6 +30,7 @@ public class XRayAlertManager {
 
     // Track if we already notified admins about suspicious players
     private final Set<UUID> notifiedPlayers = ConcurrentHashMap.newKeySet();
+    private AlertPreferenceManager preferenceManager;
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -40,6 +42,13 @@ public class XRayAlertManager {
 
         // Schedule cleanup of old alerts every 10 minutes
         Bukkit.getScheduler().runTaskTimer(plugin, this::cleanupOldAlerts, 12000L, 12000L);
+    }
+
+    /**
+     * Set the alert preference manager for silent mode support.
+     */
+    public void setPreferenceManager(AlertPreferenceManager preferenceManager) {
+        this.preferenceManager = preferenceManager;
     }
 
     /**
@@ -93,6 +102,8 @@ public class XRayAlertManager {
 
         Bukkit.getOnlinePlayers().stream()
                 .filter(p -> p.hasPermission("performance.admin"))
+                .filter(p -> preferenceManager == null ||
+                        preferenceManager.shouldReceive(p, AlertPreferenceManager.AlertCategory.XRAY))
                 .forEach(admin -> {
                     admin.sendMessage(message);
                     if (oreBreakdown != null && !oreBreakdown.isEmpty()) {

@@ -89,6 +89,8 @@ xray:
   ores_label: "  &7Erze: &f%ores%"
   locations_label: "  &7Positionen:"
   location_entry: "    &8- &f%location%"
+  db_cleared: "&aDB-Eintraege fuer &f%player% &ageloescht. &7(%count% Eintraege entfernt)"
+  db_clear_hint: "&7Um auch DB-Eintraege zu loeschen: &f/xrayalerts clear %player% --db"
   admin_alert: "&e[XRay] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/xrayalerts %player% &efuer Details"
 
 # ===================
@@ -256,6 +258,8 @@ movement:
   no_alerts_player: "&7Keine Alerts fuer diesen Spieler."
   alert_entry: "&7[%time%] &e%type%: &f%details%"
   alert_value: "  &7Wert: &f%.2f &7| Position: &f%location%"
+  db_cleared: "&aDB-Eintraege fuer &f%player% &ageloescht. &7(%count% Eintraege entfernt)"
+  db_clear_hint: "&7Um auch DB-Eintraege zu loeschen: &f/movealerts clear %player% --db"
   admin_alert: "&e[AntiCheat] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/movealerts %player% &efuer Details"
   admin_alert_detail: "&7  Typ: %type% | Wert: %.2f | Position: %location%"
   type_speed: "Geschwindigkeit"
@@ -364,6 +368,24 @@ chunkstats:
   frequent_entry: "&f%world% &7[%x%, %z%] - &e%loads% Ladevorgaenge"
   frequent_details: "  &7Max Entities: &e%entities% &7| Max Tiles: &e%tiles%"
   cleared: "&aChunk-Tracking-Verlauf geloescht."
+
+# ===================
+# Silent Mode / Streamer Modus
+# ===================
+silent:
+  all_muted: "&a[Silent Mode] &fAlle Alerts stumm geschaltet. Nutze &e/perfsilent &fzum Reaktivieren."
+  all_unmuted: "&a[Silent Mode] &fAlle Alerts wieder aktiviert."
+  category_muted: "&a[Silent Mode] &f%category% &7Alerts stumm geschaltet."
+  category_unmuted: "&a[Silent Mode] &f%category% &7Alerts wieder aktiviert."
+  unknown_type: "&cUnbekannter Alert-Typ: %type%"
+  available_types: "&7Verfuegbare Typen: &fall, xray, movement, performance"
+  list_header: "&e&l--- Alert-Einstellungen ---"
+  receiving_all: "&a  Du erhaeltst alle Alerts."
+  status_all_muted: "&c  Alle Alerts sind stumm. Nutze &f/perfsilent &czum Reaktivieren."
+  status_muted: "Stumm"
+  status_active: "Aktiv"
+  list_hint: "&7Nutze &f/perfsilent <typ> &7um einzelne Typen umzuschalten."
+  reset: "&a[Silent Mode] &fAlle Einstellungen zurueckgesetzt. Du erhaeltst wieder alle Alerts."
 
 # ===================
 # Sperrgebiete (Restricted Zones)

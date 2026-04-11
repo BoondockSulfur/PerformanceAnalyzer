@@ -4,6 +4,7 @@ import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -389,10 +390,15 @@ public class PerformanceDropAnalyzer {
             data.put("playerCount", players.size());
 
             List<String> playerLocations = players.stream()
-                .map(p -> p.getName() + "@" + p.getWorld().getName() +
-                    "[" + p.getLocation().getBlockX() + "," +
-                    p.getLocation().getBlockY() + "," +
-                    p.getLocation().getBlockZ() + "]")
+                .map(p -> {
+                    String worldName = p.getWorld() != null ? p.getWorld().getName() : "unknown";
+                    Location loc = p.getLocation();
+                    if (loc != null) {
+                        return p.getName() + "@" + worldName +
+                            "[" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + "]";
+                    }
+                    return p.getName() + "@" + worldName + "[unknown]";
+                })
                 .collect(Collectors.toList());
             data.put("playerLocations", playerLocations);
 

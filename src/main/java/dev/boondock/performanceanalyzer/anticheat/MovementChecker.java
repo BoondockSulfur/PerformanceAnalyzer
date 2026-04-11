@@ -12,6 +12,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
@@ -51,6 +52,10 @@ public class MovementChecker implements Listener {
     private final Map<UUID, Long> recentKnockback = new ConcurrentHashMap<>();
     private final Map<UUID, Long> recentDamage = new ConcurrentHashMap<>();
     private static final long KNOCKBACK_IMMUNITY_MS = 2000; // 2 seconds
+
+    // Teleport immunity tracking — prevents false positives after legitimate teleports
+    private final Map<UUID, Long> recentTeleport = new ConcurrentHashMap<>();
+    private static final long TELEPORT_IMMUNITY_MS = 1000; // 1 second grace period after teleport
 
     public MovementChecker(Plugin plugin, PluginConfig config, DatabaseManager database, ViolationTracker violations) {
         this.plugin = plugin;
@@ -164,11 +169,13 @@ public class MovementChecker implements Listener {
             speedMultiplier += Constants.SOUL_SPEED_MULTIPLIER;
         }
 
-        // LAG COMPENSATION: Increase threshold based on player ping
+        // LAG COMPENSATION: Non-linear increase based on player ping
+        // Uses square root scaling so high-ping players get progressively more tolerance
+        // without allowing extreme speeds at very high ping
         int ping = player.getPing();
         if (ping > 100) {
-            // +10% per 100ms ping above 100ms (lenient for high-ping players)
-            double lagMultiplier = 1.0 + ((ping - 100) / 1000.0);
+            // sqrt scaling: 200ms → +10%, 500ms → +20%, 1000ms → +30%
+            double lagMultiplier = 1.0 + (Math.sqrt(ping - 100) / 100.0);
             speedMultiplier *= lagMultiplier;
         }
 
@@ -216,8 +223,44 @@ public class MovementChecker implements Listener {
         recentDamage.put(playerId, System.currentTimeMillis());
     }
 
+    /**
+     * Track legitimate teleports to prevent false-positive movement violations.
+     * PlayerTeleportEvent extends PlayerMoveEvent, so without this handler
+     * teleports would be detected as "teleport-like movement" violations.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        // Mark this player as recently teleported
+        recentTeleport.put(playerId, System.currentTimeMillis());
+
+        // Reset location tracking to the teleport destination so the next
+        // movement check uses the correct baseline position
+        Location to = event.getTo();
+        if (to != null) {
+            lastLocations.put(playerId, to.clone());
+            lastMoveTime.put(playerId, System.currentTimeMillis());
+        }
+
+        // Reset violation counters — teleport is legitimate, not a violation streak
+        consecutiveSpeedViolations.remove(playerId);
+        consecutiveFlyViolations.remove(playerId);
+
+        if (config.debugMode()) {
+            plugin.getLogger().fine("[AC] " + player.getName() + " teleported (" +
+                    event.getCause().name() + "), granting immunity");
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
+        // Skip teleport events — handled by onPlayerTeleport
+        if (event instanceof PlayerTeleportEvent) {
+            return;
+        }
+
         // Skip if movement checks are disabled
         if (!config.movementChecksEnabled()) {
             return;
@@ -288,6 +331,15 @@ public class MovementChecker implements Listener {
             // and prevent false positives from rapid tick updates
             if (timeDelta < Constants.MOVEMENT_MIN_TIME_DELTA) return;
 
+            // IMMUNITY CHECK: Skip if player recently teleported
+            Long lastTeleportTime = recentTeleport.get(playerId);
+            if (lastTeleportTime != null && (now - lastTeleportTime) < TELEPORT_IMMUNITY_MS) {
+                if (config.debugMode()) {
+                    plugin.getLogger().fine("[AC] " + player.getName() + " has teleport immunity, skipping check");
+                }
+                return; // Player just teleported legitimately
+            }
+
             // IMMUNITY CHECK: Skip if player was recently knocked back or damaged
             Long lastKnockback = recentKnockback.get(playerId);
             if (lastKnockback != null && (now - lastKnockback) < KNOCKBACK_IMMUNITY_MS) {
@@ -332,8 +384,9 @@ public class MovementChecker implements Listener {
                         horizontalDist, to);
                     consecutiveSpeedViolations.put(playerId, 0);
                 }
-            } else {
-                // Reset consecutive count on valid movement (gradual decrease to avoid false negatives)
+            } else if (horizontalDist < maxSpeed * 0.7) {
+                // Only reset if speed is significantly below threshold (70%)
+                // This prevents a single valid move from washing out violations too quickly
                 consecutiveSpeedViolations.compute(playerId, (k, v) -> {
                     if (v == null || v <= 0) return 0;
                     return Math.max(0, v - 1);
@@ -354,8 +407,8 @@ public class MovementChecker implements Listener {
                         verticalDist, to);
                     consecutiveFlyViolations.put(playerId, 0);
                 }
-            } else {
-                // Reset fly violations on valid vertical movement
+            } else if (verticalDist < maxVerticalSpeed * 0.5) {
+                // Only reset if vertical speed is well below threshold
                 consecutiveFlyViolations.compute(playerId, (k, v) -> {
                     if (v == null || v <= 0) return 0;
                     return Math.max(0, v - 1);
@@ -440,6 +493,7 @@ public class MovementChecker implements Listener {
         moveCounter.remove(playerId);
         recentKnockback.remove(playerId);
         recentDamage.remove(playerId);
+        recentTeleport.remove(playerId);
         violations.resetViolations(playerId);
     }
 

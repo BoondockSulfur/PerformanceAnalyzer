@@ -1,6 +1,7 @@
 package dev.boondock.performanceanalyzer.commands;
 
 import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
+import dev.boondock.performanceanalyzer.alerts.AlertPreferenceManager;
 import dev.boondock.performanceanalyzer.analysis.ChunkTracker;
 import dev.boondock.performanceanalyzer.analysis.EntityAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.PerformanceDropAnalyzer;
@@ -115,6 +116,17 @@ public class CommandRegistry {
         PluginCommand reload = plugin.getCommand("perfreload");
         if (reload != null) {
             reload.setExecutor(new ReloadCommand(plugin));
+        }
+
+        // Silent mode command (streamer mode)
+        PluginCommand silent = plugin.getCommand("perfsilent");
+        if (silent != null) {
+            AlertPreferenceManager preferences = plugin.getAlertPreferenceManager();
+            if (preferences != null) {
+                PerfSilentCommand silentCmd = new PerfSilentCommand(plugin, lang, preferences);
+                silent.setExecutor(silentCmd);
+                silent.setTabCompleter(silentCmd);
+            }
         }
     }
 

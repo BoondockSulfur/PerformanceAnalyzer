@@ -1,5 +1,5 @@
 name: PerformanceAnalyzer
-version: 2.2.0
+version: 2.3.2
 main: dev.boondock.performanceanalyzer.PerformanceAnalyzer
 api-version: '1.21'
 author: BoondockSulfur
@@ -65,6 +65,11 @@ commands:
     usage: /perfdrops [number|clear]
     permission: performance.admin
     aliases: [pd, drops]
+  perfsilent:
+    description: Toggle alert notifications (streamer mode).
+    usage: /perfsilent [all|xray|movement|performance|list]
+    permission: performance.admin
+    aliases: [ps, silent]
 
 permissions:
   performance.status:
@@ -85,3 +90,6 @@ permissions:
   performance.anticheat.bypass:
     description: Bypasses all AntiCheat checks (WARNING - OPs have this permission automatically!)
     default: false
+  performance.silent:
+    description: Allows using the silent mode command to mute alerts.
+    default: op

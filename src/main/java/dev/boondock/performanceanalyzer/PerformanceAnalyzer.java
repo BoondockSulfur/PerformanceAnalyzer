@@ -1,6 +1,7 @@
 package dev.boondock.performanceanalyzer;
 
 import dev.boondock.performanceanalyzer.alerts.AlertManager;
+import dev.boondock.performanceanalyzer.alerts.AlertPreferenceManager;
 import dev.boondock.performanceanalyzer.analysis.ChunkTracker;
 import dev.boondock.performanceanalyzer.analysis.EntityAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.PerformanceDropAnalyzer;
@@ -59,6 +60,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     private PerformanceDropAnalyzer dropAnalyzer;
     private PlayerActivityTracker playerActivityTracker;
     private PluginTimingsAnalyzer pluginTimingsAnalyzer;
+    private AlertPreferenceManager alertPreferenceManager;
     private CommandRegistry commandRegistry;
 
     @Override
@@ -75,6 +77,10 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
 
         // Alert System
         this.alertManager = new AlertManager(this, configAdapter);
+
+        // Alert Preferences (Silent Mode / Streamer Mode)
+        this.alertPreferenceManager = new AlertPreferenceManager(this, configAdapter);
+        this.alertManager.setPreferenceManager(alertPreferenceManager);
 
         // Discord Webhook Status
         if (configAdapter.discordEnabled()) {
@@ -164,7 +170,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         // Update Checker (run async after 3 seconds delay)
         getServer().getScheduler().runTaskLaterAsynchronously(this, this::checkForUpdates, 60L);
 
-        getLogger().info("PerformanceAnalyzer v2.2.0 enabled.");
+        getLogger().info("PerformanceAnalyzer v" + getDescription().getVersion() + " enabled.");
     }
 
     /**
@@ -199,7 +205,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         if (tickSampler != null) tickSampler.stop();
         if (database != null) database.shutdown();
         if (configAdapter != null) configAdapter.saveSyncOnShutdown();
-        getLogger().info("PerformanceAnalyzer v2.2.0 disabled.");
+        getLogger().info("PerformanceAnalyzer v" + getDescription().getVersion() + " disabled.");
     }
 
 
@@ -217,6 +223,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
             }
             if (playerActivityTracker != null) {
                 playerActivityTracker.cleanupPlayer(playerId);
+            }
+            if (alertPreferenceManager != null) {
+                alertPreferenceManager.cleanup(playerId);
             }
         }
     }
@@ -273,6 +282,12 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.xrayDetector = new XRayDetector(this, configAdapter, database);
         this.xrayDetector.setAlertManager(xrayAlertManager);
 
+        // Set alert preference manager for silent mode
+        if (alertPreferenceManager != null) {
+            xrayAlertManager.setPreferenceManager(alertPreferenceManager);
+            movementAlertManager.setPreferenceManager(alertPreferenceManager);
+        }
+
         // Set LuckPerms hooks
         if (luckPermsHook != null) {
             movementChecker.setLuckPerms(luckPermsHook);
@@ -306,6 +321,8 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     public MemorySampler memorySampler() { return memorySampler; }
     public LanguageManager lang() { return lang; }
     public SparkHook spark() { return sparkHook; }
+
+    public AlertPreferenceManager getAlertPreferenceManager() { return alertPreferenceManager; }
 
     // Getters for GUI access (v2.0.0+)
     public PlayerActivityTracker getPlayerActivityTracker() { return playerActivityTracker; }

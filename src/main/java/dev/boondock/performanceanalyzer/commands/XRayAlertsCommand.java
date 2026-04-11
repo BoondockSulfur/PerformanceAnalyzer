@@ -2,6 +2,7 @@ package dev.boondock.performanceanalyzer.commands;
 
 import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
 import dev.boondock.performanceanalyzer.anticheat.XRayAlertManager;
+import dev.boondock.performanceanalyzer.db.DatabaseManager;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
@@ -64,7 +65,21 @@ public class XRayAlertsCommand implements CommandExecutor, TabCompleter {
 
             if (target.hasPlayedBefore() || target.isOnline()) {
                 alertManager.clearAlerts(target.getUniqueId());
-                sender.sendMessage(lang().get("xray.alerts_cleared_player", "%player%", playerName));
+
+                // Check for --db flag to also delete database entries
+                boolean clearDb = args.length >= 3 && args[2].equalsIgnoreCase("--db");
+                if (clearDb) {
+                    DatabaseManager db = plugin.database();
+                    if (db != null) {
+                        int deleted = db.deleteAntiCheatLogs(playerName, "anticheat_xray")
+                                + db.deleteAntiCheatLogs(playerName, "anticheat_restricted_zone");
+                        sender.sendMessage(lang().get("xray.db_cleared",
+                                "%player%", playerName, "%count%", String.valueOf(deleted)));
+                    }
+                } else {
+                    sender.sendMessage(lang().get("xray.alerts_cleared_player", "%player%", playerName));
+                    sender.sendMessage(lang().get("xray.db_clear_hint", "%player%", playerName));
+                }
             } else {
                 sender.sendMessage(lang().get("general.player_not_found", "%player%", playerName));
             }
@@ -153,6 +168,13 @@ public class XRayAlertsCommand implements CommandExecutor, TabCompleter {
                     .filter(Objects::nonNull)
                     .filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase()))
                     .collect(Collectors.toList());
+        }
+
+        if (args.length == 3 && args[0].equalsIgnoreCase("clear")) {
+            String input = args[2].toLowerCase();
+            if ("--db".startsWith(input)) {
+                return List.of("--db");
+            }
         }
 
         return Collections.emptyList();
