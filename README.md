@@ -15,7 +15,8 @@ PerformanceAnalyzer provides comprehensive server performance tracking, automati
 
 - 📊 **Real-time Performance Monitoring** - TPS, MSPT, Memory with Spark integration
 - 🔍 **Intelligent Lag Detection** - Automatic cause analysis for performance drops
-- 🛡️ **AntiCheat Module** - Movement & XRay detection with Y-level analysis
+- 🛡️ **AntiCheat Module** - Movement & XRay detection with configurable Y-level analysis
+- 🔇 **Silent Mode** - Per-player alert muting (persistent across restarts)
 - 🌐 **REST API** - JSON endpoints for Grafana/Prometheus integration
 - 🧹 **Auto Entity Cleaner** - Smart entity management to prevent lag
 - 📈 **Trend Analysis** - Historical tracking with pattern recognition
@@ -57,7 +58,13 @@ PerformanceAnalyzer provides comprehensive server performance tracking, automati
 | `/worldstats` | Per-world statistics | `performance.admin` |
 | `/entitystats` | Entity analysis | `performance.admin` |
 | `/chunkstats` | Chunk performance | `performance.admin` |
-| `/perfanalyzer reload` | Reload config | `performance.admin` |
+| `/perfhistory [min]` | Performance history | `performance.history` |
+| `/perfsilent [type]` | Toggle alert notifications (streamer mode) | `performance.admin` |
+| `/perfreload` | Reload config | `performance.admin` |
+| `/acwhitelist` | Manage AntiCheat whitelist | `performance.anticheat.manage` |
+| `/xrayalerts` | View XRay suspicion alerts | `performance.admin` |
+| `/xrayores` | Manage XRay ore exclusions | `performance.anticheat.manage` |
+| `/movealerts` | View movement alerts | `performance.admin` |
 
 ### Configuration Example
 
@@ -91,6 +98,10 @@ anticheat:
   enabled: true
   movement_checks: true
   xray_detection: true
+  # Y-Level pattern analysis thresholds (0.0 - 1.0)
+  xray_ylevel_high: 0.85    # Maximum suspicion
+  xray_ylevel_medium: 0.75  # Moderate suspicion
+  xray_ylevel_low: 0.65     # Low suspicion
 ```
 
 ### REST API
@@ -138,9 +149,16 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 ### AntiCheat Module
 - **Lag compensation** for high-ping players
 - **Knockback detection** (2s immunity after damage)
-- **Y-level pattern analysis** for XRay (optimal mining height tracking)
+- **Y-level pattern analysis** for XRay (configurable thresholds in `config.yml`)
+- **Teleport immunity** prevents false positives from `/tp`, ender pearls, etc.
 - Environmental checks (slime blocks, bubble columns)
 - **Reduced false positives** through smart detection
+
+### Silent Mode (Streamer Mode)
+- `/perfsilent` — Toggle all alert notifications
+- `/perfsilent xray|movement|performance` — Mute specific categories
+- `/perfsilent list` — View current preferences
+- **Persistent across restarts** (saved in `config.yml`)
 
 ### Auto Entity Cleaner
 - Priority-based removal (items → projectiles → monsters)
@@ -200,7 +218,30 @@ print(f"TPS: {data['tps']}, MSPT: {data['mspt']['avg']}ms")
 
 ## 📝 Changelog
 
-### v2.3.0 (Latest)
+### v2.3.2 (Latest)
+
+**Bugfixes:**
+- ✅ Fixed race condition in AlertManager cooldown (thread-safe CAS)
+- ✅ Fixed race condition in TickSampler tick sampling
+- ✅ Fixed connection pool leak in DatabaseManager shutdown
+- ✅ Fixed potential NullPointerException in all GUI ItemMeta handling
+- ✅ Fixed thread-safety issue in ViolationTracker
+- ✅ Fixed movement checker resetting violations too quickly
+- ✅ Fixed UpdateChecker crash on malformed Modrinth API response
+- ✅ Fixed inconsistent activity weight constants in PlayerActivityTracker
+
+**New Features:**
+- ✅ Configurable Y-Level thresholds for XRay detection (`xray_ylevel_high/medium/low`)
+- ✅ Config validation for Y-Level thresholds (range + ordering check)
+
+### v2.3.1
+
+**New Features:**
+- ✅ Silent Mode / Streamer Mode (`/perfsilent`)
+- ✅ AntiCheat DB cleanup commands (`--db` flag)
+- ✅ Teleport immunity for movement checks
+
+### v2.3.0
 
 **New Features:**
 - ✅ Lag compensation for movement checks
@@ -211,12 +252,6 @@ print(f"TPS: {data['tps']}, MSPT: {data['mspt']['avg']}ms")
 - ✅ Trend analysis for world stats
 - ✅ REST API endpoints
 - ✅ Automatic entity killer
-
-**Improvements:**
-- 90% less main-thread load during chunk analysis
-- Reduced AntiCheat false-positives
-- Better memory management
-- Enhanced security (API key auth, SSRF protection)
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.
 

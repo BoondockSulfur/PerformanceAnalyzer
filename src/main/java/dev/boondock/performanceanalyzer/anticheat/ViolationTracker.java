@@ -25,10 +25,10 @@ public class ViolationTracker {
     }
 
     public void resetViolations(UUID playerId, ViolationType type) {
-        PlayerViolations pv = violations.get(playerId);
-        if (pv != null) {
+        violations.computeIfPresent(playerId, (k, pv) -> {
             pv.counts.remove(type);
-        }
+            return pv;
+        });
     }
 
     public void decay(UUID playerId, ViolationType type, int amount) {

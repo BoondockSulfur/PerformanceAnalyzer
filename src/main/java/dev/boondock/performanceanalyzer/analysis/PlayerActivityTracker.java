@@ -14,6 +14,8 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.plugin.Plugin;
 
+import dev.boondock.performanceanalyzer.util.Constants;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -233,9 +235,13 @@ public class PlayerActivityTracker implements Listener {
         }
 
         public int getTotalActivity() {
-            // Weighted total (some actions are more expensive than others)
-            return blockBreaks * 3 + blockPlaces * 3 + movements + commands * 2 +
-                   interactions + entityInteractions * 2;
+            // Weighted total using centralized constants (some actions are more expensive than others)
+            return blockBreaks * Constants.ACTIVITY_WEIGHT_BLOCK_BREAK
+                 + blockPlaces * Constants.ACTIVITY_WEIGHT_BLOCK_PLACE
+                 + movements * Constants.ACTIVITY_WEIGHT_MOVEMENT
+                 + commands * Constants.ACTIVITY_WEIGHT_COMMAND
+                 + interactions * Constants.ACTIVITY_WEIGHT_INTERACTION
+                 + entityInteractions * Constants.ACTIVITY_WEIGHT_INTERACTION;
         }
 
         public String getActivitySummary() {

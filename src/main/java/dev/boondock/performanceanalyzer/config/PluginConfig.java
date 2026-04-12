@@ -83,6 +83,19 @@ public class PluginConfig {
             hasErrors = true;
         }
 
+        // Validate Y-Level thresholds (must be 0.0-1.0 and ordered: low < medium < high)
+        double yHigh = cfg.getDouble("anticheat.xray_ylevel_high", 0.85);
+        double yMedium = cfg.getDouble("anticheat.xray_ylevel_medium", 0.75);
+        double yLow = cfg.getDouble("anticheat.xray_ylevel_low", 0.65);
+        if (yHigh < 0.0 || yHigh > 1.0 || yMedium < 0.0 || yMedium > 1.0 || yLow < 0.0 || yLow > 1.0
+                || yLow >= yMedium || yMedium >= yHigh) {
+            plugin.getLogger().warning("[Config] Invalid anticheat.xray_ylevel thresholds (must be 0.0-1.0 and low < medium < high). Using defaults.");
+            cfg.set("anticheat.xray_ylevel_high", 0.85);
+            cfg.set("anticheat.xray_ylevel_medium", 0.75);
+            cfg.set("anticheat.xray_ylevel_low", 0.65);
+            hasErrors = true;
+        }
+
         if (hasErrors) {
             asyncSaver.saveAsync();
             plugin.getLogger().warning("[Config] Config validation found errors. Fixed values saved asynchronously.");
@@ -387,6 +400,22 @@ public class PluginConfig {
             plugin.getLogger().info("[Config] New entry added: entity_cleaner.world_whitelist");
         }
 
+        // v2.3.1 - XRay Y-Level analysis thresholds
+        if (!cfg.contains("anticheat.xray_ylevel_high")) {
+            cfg.set("anticheat.xray_ylevel_high", 0.85);
+            cfg.set("anticheat.xray_ylevel_medium", 0.75);
+            cfg.set("anticheat.xray_ylevel_low", 0.65);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: anticheat.xray_ylevel thresholds");
+        }
+
+        // v2.3.1 - Silent mode / Streamer mode
+        if (!cfg.contains("alerts.silent_players")) {
+            cfg.set("alerts.silent_players", new ArrayList<String>());
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.silent_players");
+        }
+
         // Update config version if changes were made
         if (changed || configVersion < Constants.CONFIG_VERSION) {
             cfg.set("config_version", Constants.CONFIG_VERSION);
@@ -543,6 +572,11 @@ public class PluginConfig {
     public double xrayStoneOreRatio() {
         return cfg.getDouble("anticheat.xray_stone_ore_ratio", 0.10);
     }
+
+    // XRay Y-Level pattern analysis thresholds
+    public double xrayYLevelHigh() { return cfg.getDouble("anticheat.xray_ylevel_high", 0.85); }
+    public double xrayYLevelMedium() { return cfg.getDouble("anticheat.xray_ylevel_medium", 0.75); }
+    public double xrayYLevelLow() { return cfg.getDouble("anticheat.xray_ylevel_low", 0.65); }
     public int xrayThresholdCoal() { return cfg.getInt("anticheat.xray_thresholds.coal", 20); }
     public int xrayThresholdIron() { return cfg.getInt("anticheat.xray_thresholds.iron", 15); }
     public int xrayThresholdCopper() { return cfg.getInt("anticheat.xray_thresholds.copper", 15); }
@@ -696,6 +730,16 @@ public class PluginConfig {
     public String fallbackLogFile() {
         String path = cfg.getString("database.fallback_log_file", "plugins/PerformanceAnalyzer/fallback.log");
         return path != null && !path.isEmpty() ? path : "plugins/PerformanceAnalyzer/fallback.log";
+    }
+
+    // Silent mode (persistent alert preferences)
+    public List<String> silentPlayers() {
+        return cfg.getStringList("alerts.silent_players");
+    }
+
+    public void setSilentPlayers(List<String> players) {
+        cfg.set("alerts.silent_players", players);
+        asyncSaver.saveAsync();
     }
 
     public String msg(String path, String def) { return cfg.getString("messages." + path, def); }

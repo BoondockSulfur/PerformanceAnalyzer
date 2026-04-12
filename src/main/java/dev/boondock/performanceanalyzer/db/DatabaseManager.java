@@ -214,13 +214,18 @@ public class DatabaseManager {
      * Should be called during plugin disable.
      */
     public void shutdown() {
-        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
-        if (cleanupTaskId != -1) Bukkit.getScheduler().cancelTask(cleanupTaskId);
-        flushBatchSafe();
-        if (fallbackLogger != null) {
-            fallbackLogger.shutdown();
+        try {
+            if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+            if (cleanupTaskId != -1) Bukkit.getScheduler().cancelTask(cleanupTaskId);
+            flushBatchSafe();
+            if (fallbackLogger != null) {
+                fallbackLogger.shutdown();
+            }
+        } finally {
+            if (ds != null && !ds.isClosed()) {
+                ds.close();
+            }
         }
-        if (ds != null) ds.close();
     }
 
     /**
@@ -345,6 +350,28 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("Query error (countPerformanceSpikes): " + e.getMessage());
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    /**
+     * Delete anticheat log entries for a specific player.
+     * Matches entries where the description starts with the player name.
+     *
+     * @param playerName The player name to delete entries for
+     * @param logTypePrefix Log type prefix to match (e.g., "anticheat_" for all, "anticheat_speed" for speed only)
+     * @return Number of deleted entries
+     */
+    public int deleteAntiCheatLogs(String playerName, String logTypePrefix) {
+        String sql = "DELETE FROM performance_logs WHERE log_type LIKE ? AND description LIKE ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, logTypePrefix + "%");
+            ps.setString(2, playerName + ":%");
+            int deleted = ps.executeUpdate();
+            return deleted;
+        } catch (SQLException e) {
+            plugin.getLogger().severe("Delete error (deleteAntiCheatLogs): " + e.getMessage());
             e.printStackTrace();
         }
         return 0;

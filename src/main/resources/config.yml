@@ -170,6 +170,18 @@ anticheat:
     emerald: 4
     ancient_debris: 3
 
+  # Y-Level Pattern Analysis Thresholds (0.0 - 1.0)
+  # Detects if a player mines too consistently at optimal Y-levels
+  # Normal mining (caving): ~40-60% at optimal Y
+  # XRay users: 85%+ at optimal Y (they know exactly where ores are)
+  #
+  # xray_ylevel_high: Percentage at which suspicion is maximum (1.0)
+  # xray_ylevel_medium: Percentage at which suspicion is moderate (0.6)
+  # xray_ylevel_low: Percentage at which suspicion starts (0.3)
+  xray_ylevel_high: 0.85
+  xray_ylevel_medium: 0.75
+  xray_ylevel_low: 0.65
+
   # Ore-to-stone ratio threshold (0.0 - 1.0)
   # Normal mining: 2-5% ores (0.02-0.05)
   # Suspicious: > 10% ores (> 0.10)
@@ -234,6 +246,13 @@ discord:
     high_heap: true
     packet_flood: true
     anticheat: true
+
+# Alert Preferences (Streamer/Silent Mode)
+alerts:
+  # Players who have muted alerts (persistent across restarts)
+  # Format: "uuid" (all muted) or "uuid:XRAY,MOVEMENT,PERFORMANCE" (specific types)
+  # Managed via /perfsilent command - do not edit manually
+  silent_players: []
 
 # Messages (supports color codes with &)
 messages:

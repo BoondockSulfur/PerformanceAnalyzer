@@ -94,8 +94,8 @@ public class TickSampler implements Sampler {
             if (last != -1L) {
                 long dt = now - last;
                 synchronized (nanos) {
-                    nanos[idx.get()] = dt;
-                    idx.set((idx.get() + 1) % nanos.length);
+                    int currentIdx = idx.getAndUpdate(i -> (i + 1) % nanos.length);
+                    nanos[currentIdx] = dt;
                 }
             }
             last = now;

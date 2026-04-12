@@ -420,13 +420,18 @@ public class XRayDetector implements Listener {
 
         double optimalPercentage = (double) optimalCount / yLevels.size();
 
-        // Normal mining: 40-60% at optimal Y (random exploration)
-        // XRay: 70%+ at optimal Y (knows exactly where ores are)
-        if (optimalPercentage >= 0.75) {
-            return 1.0; // Highly suspicious (75%+)
-        } else if (optimalPercentage >= 0.65) {
+        // Configurable Y-Level thresholds (adjustable in config.yml)
+        // Normal mining (caving): ~40-60% at optimal Y
+        // XRay users: 85%+ at optimal Y (they know exactly where ores are)
+        double highThreshold = config.xrayYLevelHigh();
+        double mediumThreshold = config.xrayYLevelMedium();
+        double lowThreshold = config.xrayYLevelLow();
+
+        if (optimalPercentage >= highThreshold) {
+            return 1.0; // Highly suspicious
+        } else if (optimalPercentage >= mediumThreshold) {
             return 0.6; // Moderately suspicious
-        } else if (optimalPercentage >= 0.55) {
+        } else if (optimalPercentage >= lowThreshold) {
             return 0.3; // Slightly suspicious
         }
 

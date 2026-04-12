@@ -73,8 +73,10 @@ public class AntiCheatGUI implements Listener, InventoryHolder {
         // Filler
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta meta = filler.getItemMeta();
-        meta.setDisplayName(" ");
-        filler.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(" ");
+            filler.setItemMeta(meta);
+        }
         for (int i = 0; i < 27; i++) {
             if (inventory.getItem(i) == null) inventory.setItem(i, filler);
         }
@@ -101,13 +103,15 @@ public class AntiCheatGUI implements Listener, InventoryHolder {
     private ItemStack createItem(Material mat, String name, String... lore) {
         ItemStack item = new ItemStack(mat);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(color(name));
+        if (meta != null) {
+            meta.setDisplayName(color(name));
 
-        List<String> loreList = new ArrayList<>();
-        for (String line : lore) loreList.add(color(line));
-        meta.setLore(loreList);
+            List<String> loreList = new ArrayList<>();
+            for (String line : lore) loreList.add(color(line));
+            meta.setLore(loreList);
 
-        item.setItemMeta(meta);
+            item.setItemMeta(meta);
+        }
         return item;
     }
 

@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.2] - 2026-04-11
+
+### Fixed
+- **Race Condition in AlertManager**: Cooldown check now uses atomic `compareAndSet()` instead of separate `get()`/`set()`, preventing duplicate alerts under concurrent access
+- **Race Condition in TickSampler**: Tick sampling now uses `idx.getAndUpdate()` for atomic index read-modify-write, preventing data corruption in the nanos array
+- **Connection Pool Leak in DatabaseManager**: `shutdown()` now uses try-finally to ensure `HikariDataSource.close()` is always called, even if `flushBatchSafe()` throws an exception
+- **NullPointerException in GUIs**: Added null-checks for `getItemMeta()` in all GUI classes (PerformanceGUI, AntiCheatGUI, LagAnalysisGUI, PerformanceDropsGUI) — follows the safe pattern already used in ConfigGUI
+- **Thread-Safety in ViolationTracker**: `resetViolations(UUID, ViolationType)` now uses `computeIfPresent()` to prevent race condition where the PlayerViolations object could be removed between `get()` and `counts.remove()`
+- **MovementChecker Violation Reset Too Aggressive**: Consecutive violation counters now only reset when speed is significantly below threshold (70%), preventing a single valid move from immediately washing out violations
+- **XRay Y-Level Thresholds Too Aggressive**: Default thresholds raised from 75%/65%/55% to 85%/75%/65% to reduce false positives from legitimate caving
+- **UpdateChecker Missing Field Validation**: Now checks for `version_number` field existence in Modrinth API response before accessing it
+- **Inconsistent Activity Weights**: `PlayerActivityTracker.getTotalActivity()` now uses centralized `Constants.ACTIVITY_WEIGHT_*` values instead of hardcoded numbers
+
+### Added
+- **Configurable XRay Y-Level Thresholds** (`config.yml`)
+  - `anticheat.xray_ylevel_high` (default: 0.85) — percentage for maximum suspicion
+  - `anticheat.xray_ylevel_medium` (default: 0.75) — percentage for moderate suspicion
+  - `anticheat.xray_ylevel_low` (default: 0.65) — percentage for low suspicion
+  - Config validation ensures values are 0.0-1.0 and properly ordered (low < medium < high)
+  - Auto-migration adds defaults for existing configs
+
+### Changed
+- `XRayDetector.analyzeYLevelPattern()` reads thresholds from config instead of using hardcoded values
+
+---
+
+## [2.3.1] - 2026-04-10
+
+### Added
+- **Silent Mode / Streamer Mode** (`/perfsilent`)
+  - Toggle all alerts on/off: `/perfsilent`
+  - Toggle per category: `/perfsilent xray`, `/perfsilent movement`, `/perfsilent performance`
+  - Reset all preferences at once: `/perfsilent reset`
+  - View current status: `/perfsilent list`
+  - Persistent across server restarts (saved in `config.yml` under `alerts.silent_players`)
+  - Aliases: `/ps`, `/silent`
+  - Full tab-completion support
+  - Bilingual: German & English language strings
+- **AntiCheat DB Cleanup Commands**
+  - `/movealerts clear <player> --db` — deletes movement violation entries from the database
+  - `/xrayalerts clear <player> --db` — deletes XRay detection entries from the database
+  - Without `--db`: only clears in-memory alerts (as before), now shows a hint about the `--db` option
+  - Tab-completion for `--db` flag
+- **Teleport Immunity for Movement Checks**
+  - New `PlayerTeleportEvent` listener prevents false positives from legitimate teleports (`/tp`, `/home`, ender pearls, etc.)
+  - 1-second grace period after any teleport where movement checks are skipped
+  - `lastLocations` reset to teleport destination to prevent follow-up false positives
+  - Consecutive violation counters reset on teleport
+
+### Fixed
+- **Version Inconsistency**: pom.xml, plugin.yml, and main class now use the same version dynamically via `getDescription().getVersion()` instead of hardcoded strings
+- **Race Condition in AsyncConfigSaver**: `pendingSave` changed from `volatile boolean` to `AtomicBoolean` with proper atomic check-and-set operations, preventing lost config saves under concurrent requests
+- **NullPointerException in PerformanceDropAnalyzer**: Added null-checks for `Player.getWorld()` and `Player.getLocation()` during world unload scenarios
+- **Memory Leak in AlertManager**: Added periodic cleanup task (every 5 minutes) for stale `lastAlertTimes` entries that were never removed
+- **AntiCheat False Positives**: Improved lag compensation from linear to square-root scaling (200ms ping = +10%, 500ms = +20%, 1000ms = +30%), reducing false positives for high-ping players without allowing extreme speeds
+
+### Changed
+- All three alert systems (`AlertManager`, `XRayAlertManager`, `MovementAlertManager`) now respect per-player alert preferences before sending chat notifications
+- Config auto-migration adds `alerts.silent_players` for new installations
+
+---
+
 ## [2.3.0] - 2026-02-22
 
 ### Added
@@ -135,6 +197,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Upgrade Guide
+
+### From 2.3.1 to 2.3.2
+1. Replace plugin JAR
+2. Restart server
+3. Config auto-migrates (adds `anticheat.xray_ylevel_*` thresholds)
+4. Optionally adjust Y-Level thresholds in `config.yml` for your server
+
+**No breaking changes** - fully backward compatible.
+
+### From 2.3.0 to 2.3.1
+1. Replace plugin JAR
+2. Restart server
+3. Config auto-migrates (adds `alerts.silent_players`)
+4. Admins can use `/perfsilent` to mute alerts
+
+**No breaking changes** - fully backward compatible.
 
 ### From 2.2.0 to 2.3.0
 1. Replace plugin JAR

@@ -89,8 +89,10 @@ public class PerformanceDropsGUI implements Listener, InventoryHolder {
         // Fill empty slots
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta fillerMeta = filler.getItemMeta();
-        fillerMeta.setDisplayName(" ");
-        filler.setItemMeta(fillerMeta);
+        if (fillerMeta != null) {
+            fillerMeta.setDisplayName(" ");
+            filler.setItemMeta(fillerMeta);
+        }
 
         for (int i = 0; i < inventory.getSize(); i++) {
             if (inventory.getItem(i) == null) {

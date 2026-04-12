@@ -141,6 +141,11 @@ public class UpdateChecker {
         for (int i = 0; i < versions.size(); i++) {
             JsonObject version = versions.get(i).getAsJsonObject();
 
+            // Skip entries missing required fields
+            if (!version.has("version_number") || version.get("version_number").isJsonNull()) {
+                continue;
+            }
+
             // Check if this is a release version (not beta/alpha)
             String versionType = version.has("version_type")
                 ? version.get("version_type").getAsString()

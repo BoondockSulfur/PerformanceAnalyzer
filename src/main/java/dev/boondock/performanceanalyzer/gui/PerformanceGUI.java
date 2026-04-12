@@ -115,8 +115,10 @@ public class PerformanceGUI implements Listener, InventoryHolder {
         // Fill empty slots with glass pane
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta fillerMeta = filler.getItemMeta();
-        fillerMeta.setDisplayName(" ");
-        filler.setItemMeta(fillerMeta);
+        if (fillerMeta != null) {
+            fillerMeta.setDisplayName(" ");
+            filler.setItemMeta(fillerMeta);
+        }
 
         for (int i = 0; i < inventory.getSize(); i++) {
             if (inventory.getItem(i) == null) {
@@ -339,15 +341,17 @@ public class PerformanceGUI implements Listener, InventoryHolder {
     private ItemStack createItem(Material material, String name, String... lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(color(name));
+        if (meta != null) {
+            meta.setDisplayName(color(name));
 
-        List<String> loreList = new ArrayList<>();
-        for (String line : lore) {
-            loreList.add(color(line));
+            List<String> loreList = new ArrayList<>();
+            for (String line : lore) {
+                loreList.add(color(line));
+            }
+            meta.setLore(loreList);
+
+            item.setItemMeta(meta);
         }
-        meta.setLore(loreList);
-
-        item.setItemMeta(meta);
         return item;
     }
 
