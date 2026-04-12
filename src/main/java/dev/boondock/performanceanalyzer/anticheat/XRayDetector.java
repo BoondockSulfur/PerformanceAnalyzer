@@ -54,9 +54,6 @@ public class XRayDetector implements Listener {
     // Key: Block location hash, Value: Timestamp when placed
     private final Map<String, Long> playerPlacedBlocks = new ConcurrentHashMap<>();
 
-    // Y-Level tracking for XRay pattern analysis
-    private final Map<UUID, Map<String, List<Integer>>> playerOreYLevels = new ConcurrentHashMap<>();
-
     // Valuable ores to track
     private static final Set<Material> VALUABLE_ORES = Set.of(
         Material.COAL_ORE, Material.DEEPSLATE_COAL_ORE,
@@ -284,6 +281,21 @@ public class XRayDetector implements Listener {
 
         // Track ore mining (skip excluded ores)
         if (VALUABLE_ORES.contains(type) && !isOreExcluded(type)) {
+            // Check if this block was player-placed (e.g. silk touch ores placed in base)
+            // This check applies to ALL worlds to prevent false positives
+            String locationKey = getLocationKey(block.getLocation());
+            boolean wasPlayerPlaced = playerPlacedBlocks.containsKey(locationKey);
+
+            if (wasPlayerPlaced) {
+                // Remove from tracking and skip ALL detection for this block
+                playerPlacedBlocks.remove(locationKey);
+                if (config.debugMode()) {
+                    plugin.getLogger().info("[XRay] " + player.getName() +
+                        " mined self-placed ore " + type.name() + " at " + locationKey + " - skipping detection");
+                }
+                return; // Not a naturally generated ore, skip entirely
+            }
+
             // Check if player is in a restricted world (instant alert zone)
             String worldName = player.getWorld().getName();
             boolean isInRestrictedWorld = config.isRestrictedWorld(worldName);
@@ -305,41 +317,27 @@ public class XRayDetector implements Listener {
 
             // INSTANT ALERT for restricted worlds
             if (shouldMonitorOreInRestrictedWorld) {
-                // Check if this block was player-placed
-                String locationKey = getLocationKey(block.getLocation());
-                boolean wasPlayerPlaced = playerPlacedBlocks.containsKey(locationKey);
+                String locationInfo = String.format("%s @ [%d, %d, %d]",
+                    worldName,
+                    block.getX(), block.getY(), block.getZ());
 
-                if (wasPlayerPlaced) {
-                    // Remove from tracking and skip alert
-                    playerPlacedBlocks.remove(locationKey);
-                    if (config.debugMode()) {
-                        plugin.getLogger().info("[XRay RESTRICTED] " + player.getName() +
-                            " mined self-placed ore " + type.name() + " at " + locationKey + " - no alert");
-                    }
-                } else {
-                    // Naturally generated ore mined in restricted world - ALERT!
-                    String locationInfo = String.format("%s @ [%d, %d, %d]",
-                        worldName,
-                        block.getX(), block.getY(), block.getZ());
+                String message = String.format(
+                    "[SPERRGEBIET-ALARM] %s hat %s in Sperrgebiet abgebaut! Ort: %s",
+                    player.getName(), type.name(), locationInfo
+                );
 
-                    String message = String.format(
-                        "[SPERRGEBIET-ALARM] %s hat %s in Sperrgebiet abgebaut! Ort: %s",
-                        player.getName(), type.name(), locationInfo
-                    );
+                plugin.getLogger().warning("[XRay RESTRICTED] " + message);
 
-                    plugin.getLogger().warning("[XRay RESTRICTED] " + message);
+                // Immediate violation log (no threshold checking)
+                Map<String, Integer> breakdown = new HashMap<>();
+                breakdown.put(type.name(), 1);
+                List<String> location = new ArrayList<>();
+                location.add(type.name() + " @ " + locationInfo);
 
-                    // Immediate violation log (no threshold checking)
-                    Map<String, Integer> breakdown = new HashMap<>();
-                    breakdown.put(type.name(), 1);
-                    List<String> location = new ArrayList<>();
-                    location.add(type.name() + " @ " + locationInfo);
+                logViolation(player, "RESTRICTED_ZONE", message, 1, breakdown, location);
 
-                    logViolation(player, "RESTRICTED_ZONE", message, 1, breakdown, location);
-
-                    if (database != null) {
-                        database.logAsync("anticheat_restricted_zone", 1.0, message);
-                    }
+                if (database != null) {
+                    database.logAsync("anticheat_restricted_zone", 1.0, message);
                 }
             }
 
@@ -348,9 +346,6 @@ public class XRayDetector implements Listener {
             // Clone location to avoid holding chunk references (memory optimization)
             Location mineLoc = block.getLocation().clone();
             mines.add(new OreMineEvent(type, System.currentTimeMillis(), mineLoc));
-
-            // Track Y-Level for pattern analysis
-            trackYLevel(playerId, type.name(), mineLoc.getBlockY());
 
             // Cleanup old events (older than timewindow) - CRITICAL for memory management
             // Removes both old timestamps AND their location references
@@ -381,93 +376,11 @@ public class XRayDetector implements Listener {
     }
 
     /**
-     * Track Y-Level for ore mining pattern analysis.
-     */
-    private void trackYLevel(UUID playerId, String oreType, int yLevel) {
-        Map<String, List<Integer>> oreYLevels = playerOreYLevels.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-        List<Integer> yLevels = oreYLevels.computeIfAbsent(oreType, k -> new CopyOnWriteArrayList<>());
-
-        yLevels.add(yLevel);
-
-        // Keep only last 50 Y-levels per ore type
-        while (yLevels.size() > 50) {
-            yLevels.remove(0);
-        }
-    }
-
-    /**
-     * Analyze Y-Level distribution for XRay patterns.
-     * Returns suspicion score (0.0 = normal, 1.0 = highly suspicious)
-     */
-    private double analyzeYLevelPattern(UUID playerId, String oreType) {
-        Map<String, List<Integer>> oreYLevels = playerOreYLevels.get(playerId);
-        if (oreYLevels == null) return 0.0;
-
-        List<Integer> yLevels = oreYLevels.get(oreType);
-        if (yLevels == null || yLevels.size() < 5) return 0.0; // Not enough data
-
-        // Get optimal Y-level range for this ore
-        int[] optimalRange = getOptimalYRange(oreType);
-        if (optimalRange == null) return 0.0;
-
-        int optimalMin = optimalRange[0];
-        int optimalMax = optimalRange[1];
-
-        // Count how many mines are at optimal Y-level
-        long optimalCount = yLevels.stream()
-            .filter(y -> y >= optimalMin && y <= optimalMax)
-            .count();
-
-        double optimalPercentage = (double) optimalCount / yLevels.size();
-
-        // Configurable Y-Level thresholds (adjustable in config.yml)
-        // Normal mining (caving): ~40-60% at optimal Y
-        // XRay users: 85%+ at optimal Y (they know exactly where ores are)
-        double highThreshold = config.xrayYLevelHigh();
-        double mediumThreshold = config.xrayYLevelMedium();
-        double lowThreshold = config.xrayYLevelLow();
-
-        if (optimalPercentage >= highThreshold) {
-            return 1.0; // Highly suspicious
-        } else if (optimalPercentage >= mediumThreshold) {
-            return 0.6; // Moderately suspicious
-        } else if (optimalPercentage >= lowThreshold) {
-            return 0.3; // Slightly suspicious
-        }
-
-        return 0.0; // Normal
-    }
-
-    /**
-     * Get optimal Y-level range for ore spawning.
-     * Based on Minecraft 1.21 ore distribution.
-     */
-    private int[] getOptimalYRange(String oreType) {
-        String normalized = oreType.toUpperCase()
-            .replace("DEEPSLATE_", "")
-            .replace("_ORE", "");
-
-        return switch (normalized) {
-            case "DIAMOND" -> new int[]{-64, -54};      // Peak at Y -59
-            case "EMERALD" -> new int[]{-16, 320};      // Mountains only
-            case "ANCIENT_DEBRIS" -> new int[]{8, 22};  // Peak at Y 15
-            case "GOLD" -> new int[]{-64, -48};         // Peak in badlands/deep
-            case "LAPIS" -> new int[]{-32, 32};         // Peak at Y 0
-            case "REDSTONE" -> new int[]{-64, -32};     // Deep only
-            case "IRON" -> new int[]{-32, 256};         // Wide range
-            case "COPPER" -> new int[]{-16, 112};       // Peak at Y 48
-            case "COAL" -> new int[]{0, 256};           // Very wide range
-            default -> null;
-        };
-    }
-
-    /**
      * Check player's mining pattern for XRay indicators.
-     * Uses four detection methods:
+     * Uses three detection methods:
      * 1. Per-ore threshold check (too many of a specific ore)
      * 2. Ore-to-stone ratio (mining too many ores vs stone)
      * 3. Rare ore frequency (too many diamonds/emeralds/ancient debris)
-     * 4. Y-Level pattern analysis (mining at optimal Y too consistently)
      *
      * @param player The player being checked
      * @param playerId Player's UUID
@@ -489,30 +402,6 @@ public class XRayDetector implements Listener {
             if (count >= threshold) {
                 exceededOres.put(oreName, count);
             }
-        }
-
-        // NEW: Y-Level Pattern Analysis
-        double yLevelSuspicion = 0.0;
-        String suspiciousOreType = null;
-        for (String oreType : oreBreakdown.keySet()) {
-            double suspicion = analyzeYLevelPattern(playerId, oreType);
-            if (suspicion > yLevelSuspicion) {
-                yLevelSuspicion = suspicion;
-                suspiciousOreType = oreType;
-            }
-        }
-
-        if (yLevelSuspicion >= 0.6 && suspiciousOreType != null) {
-            String message = String.format(
-                "[XRay?] %s: Verdächtige Y-Level Muster bei %s (%.0f%% bei optimaler Höhe)",
-                player.getName(), suspiciousOreType, yLevelSuspicion * 100
-            );
-
-            if (config.debugMode()) {
-                plugin.getLogger().warning("[XRay Y-LEVEL] " + message);
-            }
-
-            logViolation(player, "XRAY_YLEVEL", message, mines.size(), oreBreakdown, getRecentLocations(mines));
         }
 
         // If any ore exceeded its threshold, trigger alert
@@ -712,7 +601,6 @@ public class XRayDetector implements Listener {
     public void cleanup(UUID playerId) {
         playerOreMines.remove(playerId);
         playerStoneMines.remove(playerId);
-        playerOreYLevels.remove(playerId);
     }
 
     /**

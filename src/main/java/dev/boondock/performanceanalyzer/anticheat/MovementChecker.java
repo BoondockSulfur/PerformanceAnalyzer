@@ -310,11 +310,13 @@ public class MovementChecker implements Listener {
         // Determine movement type
         MovementType moveType = getMovementType(player);
 
-        // Skip certain movement types entirely (they have their own physics)
+        // Skip certain movement types entirely (they have their own physics or are too slow to cheat with)
         if (moveType == MovementType.ELYTRA || moveType == MovementType.RIPTIDE ||
             moveType == MovementType.CREATIVE_FLY || moveType == MovementType.MINECART ||
             moveType == MovementType.BOAT || moveType.name().startsWith("RIDING_") ||
-            moveType == MovementType.OTHER_VEHICLE) {
+            moveType == MovementType.OTHER_VEHICLE ||
+            moveType == MovementType.SNEAKING || moveType == MovementType.CLIMBING ||
+            moveType == MovementType.SWIMMING) {
             // Reset tracking for these modes
             lastLocations.put(playerId, to.clone());
             lastMoveTime.put(playerId, System.currentTimeMillis());

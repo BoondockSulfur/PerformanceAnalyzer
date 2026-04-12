@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.3] - 2026-04-12
+
+### Fixed
+- **Sneaking/Swimming/Climbing False Positives**: These movement types are now skipped entirely by the speed checker. Sneaking at 0.16 b/t was triggering alerts with a threshold of 0.15 (walk * 0.3) — nobody speed-hacks while sneaking
+- **Silk Touch Ores Not Recognized as Self-Placed**: The player-placed block check now applies to ALL worlds, not just restricted worlds. Previously, silk-touching an ore block, placing it in your base, and breaking it would count toward XRay detection
+- **Y-Level Pattern Analysis Removed**: Completely removed the Y-Level analysis feature. Mining at optimal Y-levels is normal gameplay (anyone can Google "best Y level for diamonds") and produced false positives
+
+### Removed
+- `analyzeYLevelPattern()`, `trackYLevel()`, `getOptimalYRange()` methods from XRayDetector
+- `playerOreYLevels` tracking map from XRayDetector
+- `xray_ylevel_high/medium/low` config entries and validation
+- `XRAY_YLEVEL` violation type
+
+---
+
 ## [2.3.2] - 2026-04-11
 
 ### Fixed
@@ -197,6 +212,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Upgrade Guide
+
+### From 2.3.2 to 2.3.3
+1. Replace plugin JAR
+2. Restart server
+3. Old `xray_ylevel_*` config entries can be safely removed (ignored if present)
+
+**No breaking changes** - fully backward compatible.
 
 ### From 2.3.1 to 2.3.2
 1. Replace plugin JAR

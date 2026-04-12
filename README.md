@@ -15,7 +15,7 @@ PerformanceAnalyzer provides comprehensive server performance tracking, automati
 
 - 📊 **Real-time Performance Monitoring** - TPS, MSPT, Memory with Spark integration
 - 🔍 **Intelligent Lag Detection** - Automatic cause analysis for performance drops
-- 🛡️ **AntiCheat Module** - Movement & XRay detection with configurable Y-level analysis
+- 🛡️ **AntiCheat Module** - Movement & XRay detection (ore frequency, ratio, rare ores)
 - 🔇 **Silent Mode** - Per-player alert muting (persistent across restarts)
 - 🌐 **REST API** - JSON endpoints for Grafana/Prometheus integration
 - 🧹 **Auto Entity Cleaner** - Smart entity management to prevent lag
@@ -98,10 +98,6 @@ anticheat:
   enabled: true
   movement_checks: true
   xray_detection: true
-  # Y-Level pattern analysis thresholds (0.0 - 1.0)
-  xray_ylevel_high: 0.85    # Maximum suspicion
-  xray_ylevel_medium: 0.75  # Moderate suspicion
-  xray_ylevel_low: 0.65     # Low suspicion
 ```
 
 ### REST API
@@ -149,7 +145,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 ### AntiCheat Module
 - **Lag compensation** for high-ping players
 - **Knockback detection** (2s immunity after damage)
-- **Y-level pattern analysis** for XRay (configurable thresholds in `config.yml`)
+- **Silk Touch ore tracking** (prevents false positives from self-placed ores)
 - **Teleport immunity** prevents false positives from `/tp`, ender pearls, etc.
 - Environmental checks (slime blocks, bubble columns)
 - **Reduced false positives** through smart detection
@@ -218,7 +214,14 @@ print(f"TPS: {data['tps']}, MSPT: {data['mspt']['avg']}ms")
 
 ## 📝 Changelog
 
-### v2.3.2 (Latest)
+### v2.3.3 (Latest)
+
+**Bugfixes:**
+- ✅ Fixed sneaking/swimming/climbing triggering false speed alerts
+- ✅ Fixed silk touch ores not recognized as self-placed (XRay false positives)
+- ✅ Removed Y-Level pattern analysis (normal gameplay, not a cheat indicator)
+
+### v2.3.2
 
 **Bugfixes:**
 - ✅ Fixed race condition in AlertManager cooldown (thread-safe CAS)
@@ -229,10 +232,6 @@ print(f"TPS: {data['tps']}, MSPT: {data['mspt']['avg']}ms")
 - ✅ Fixed movement checker resetting violations too quickly
 - ✅ Fixed UpdateChecker crash on malformed Modrinth API response
 - ✅ Fixed inconsistent activity weight constants in PlayerActivityTracker
-
-**New Features:**
-- ✅ Configurable Y-Level thresholds for XRay detection (`xray_ylevel_high/medium/low`)
-- ✅ Config validation for Y-Level thresholds (range + ordering check)
 
 ### v2.3.1
 
