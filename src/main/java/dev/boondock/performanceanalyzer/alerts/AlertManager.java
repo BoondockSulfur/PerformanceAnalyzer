@@ -5,11 +5,12 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
+import dev.boondock.performanceanalyzer.util.Constants;
+
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -21,7 +22,6 @@ public class AlertManager {
     private final PluginConfig config;
     private final DiscordWebhook discordWebhook;
     private final Set<AlertType> recentAlerts = ConcurrentHashMap.newKeySet();
-    private final long ALERT_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(5); // 5 minute cooldown per alert type
     private final ConcurrentHashMap<AlertType, AtomicLong> lastAlertTimes = new ConcurrentHashMap<>();
     private AlertPreferenceManager preferenceManager;
 
@@ -33,7 +33,7 @@ public class AlertManager {
         // Periodically clean up stale entries from lastAlertTimes to prevent memory leak
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             long now = System.currentTimeMillis();
-            lastAlertTimes.entrySet().removeIf(e -> (now - e.getValue().get()) > ALERT_COOLDOWN_MS * 2);
+            lastAlertTimes.entrySet().removeIf(e -> (now - e.getValue().get()) > Constants.ALERT_COOLDOWN_MS * 2);
         }, 6000L, 6000L); // Every 5 minutes
     }
 
@@ -48,7 +48,7 @@ public class AlertManager {
         AtomicLong lastTime = lastAlertTimes.computeIfAbsent(type, k -> new AtomicLong(0));
         while (true) {
             long lastAlertTime = lastTime.get();
-            if ((now - lastAlertTime) < ALERT_COOLDOWN_MS) {
+            if ((now - lastAlertTime) < Constants.ALERT_COOLDOWN_MS) {
                 return; // Still cooling down
             }
             if (lastTime.compareAndSet(lastAlertTime, now)) {
@@ -82,7 +82,7 @@ public class AlertManager {
         discordWebhook.sendAlert(type, type.getDisplayName(), message, value);
 
         // Schedule cooldown reset (ticks = milliseconds / 50)
-        Bukkit.getScheduler().runTaskLater(plugin, () -> recentAlerts.remove(type), ALERT_COOLDOWN_MS / 50);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> recentAlerts.remove(type), Constants.ALERT_COOLDOWN_MS / 50);
     }
 
     /**

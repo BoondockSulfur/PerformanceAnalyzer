@@ -4,6 +4,7 @@ import dev.boondock.performanceanalyzer.alerts.AlertManager;
 import dev.boondock.performanceanalyzer.alerts.AlertPreferenceManager;
 import dev.boondock.performanceanalyzer.alerts.DiscordWebhook;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
+import dev.boondock.performanceanalyzer.util.Constants;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -39,8 +40,7 @@ public class MovementAlertManager {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")
             .withZone(ZoneId.systemDefault());
 
-    // Cooldown in milliseconds (5 minutes per type)
-    private static final long ALERT_COOLDOWN_MS = 5 * 60 * 1000L;
+    // Use centralized constant for cooldown
 
     public MovementAlertManager(Plugin plugin, PluginConfig config) {
         this.plugin = plugin;
@@ -101,7 +101,7 @@ public class MovementAlertManager {
         Long lastAlert = cooldowns.get(type);
         if (lastAlert == null) return false;
 
-        return System.currentTimeMillis() - lastAlert < ALERT_COOLDOWN_MS;
+        return System.currentTimeMillis() - lastAlert < Constants.ALERT_COOLDOWN_MS;
     }
 
     private void setCooldown(UUID playerId, String type) {
@@ -198,7 +198,7 @@ public class MovementAlertManager {
     private void cleanupOldAlerts() {
         long now = System.currentTimeMillis();
         long alertCutoff = now - (30 * 60 * 1000L);
-        long cooldownCutoff = now - ALERT_COOLDOWN_MS;
+        long cooldownCutoff = now - Constants.ALERT_COOLDOWN_MS;
 
         // Clean up old alerts
         playerAlerts.entrySet().removeIf(entry -> {

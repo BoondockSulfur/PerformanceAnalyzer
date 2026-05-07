@@ -447,15 +447,15 @@ public class MovementChecker implements Listener {
 
     private boolean isNearLiquid(Player player) {
         Location loc = player.getLocation();
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                for (int z = -1; z <= 1; z++) {
-                    Material type = loc.getBlock().getRelative(x, y, z).getType();
-                    if (type == Material.WATER || type == Material.LAVA ||
-                        type == Material.BUBBLE_COLUMN) {
-                        return true;
-                    }
-                }
+        // Check current block and 6 adjacent faces (7 checks instead of 27)
+        Material current = loc.getBlock().getType();
+        if (current == Material.WATER || current == Material.LAVA || current == Material.BUBBLE_COLUMN) return true;
+
+        int[][] offsets = {{0,-1,0}, {0,1,0}, {1,0,0}, {-1,0,0}, {0,0,1}, {0,0,-1}};
+        for (int[] o : offsets) {
+            Material type = loc.getBlock().getRelative(o[0], o[1], o[2]).getType();
+            if (type == Material.WATER || type == Material.LAVA || type == Material.BUBBLE_COLUMN) {
+                return true;
             }
         }
         return false;

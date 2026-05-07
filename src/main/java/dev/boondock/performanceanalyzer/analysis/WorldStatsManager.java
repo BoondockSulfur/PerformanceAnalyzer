@@ -206,20 +206,22 @@ public class WorldStatsManager {
         String worldName = world.getName();
 
         List<WorldStatsSnapshot> history = trendHistory.computeIfAbsent(
-            worldName, k -> new ArrayList<>()
+            worldName, k -> Collections.synchronizedList(new ArrayList<>())
         );
 
-        history.add(new WorldStatsSnapshot(
-            stats.entityCount(),
-            stats.loadedChunks(),
-            stats.tileEntityCount(),
-            stats.entityDensity(),
-            System.currentTimeMillis()
-        ));
+        synchronized (history) {
+            history.add(new WorldStatsSnapshot(
+                stats.entityCount(),
+                stats.loadedChunks(),
+                stats.tileEntityCount(),
+                stats.entityDensity(),
+                System.currentTimeMillis()
+            ));
 
-        // Keep only last MAX_SNAPSHOTS entries
-        while (history.size() > MAX_SNAPSHOTS) {
-            history.remove(0);
+            // Keep only last MAX_SNAPSHOTS entries
+            while (history.size() > MAX_SNAPSHOTS) {
+                history.remove(0);
+            }
         }
     }
 

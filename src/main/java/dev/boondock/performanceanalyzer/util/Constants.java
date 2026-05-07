@@ -25,6 +25,12 @@ public final class Constants {
     public static final int DB_DEFAULT_MIN_IDLE = 2;
     public static final long DB_DEFAULT_CONNECTION_TIMEOUT_MS = 10000L;
 
+    /**
+     * Maximum queue size for database log entries.
+     * Prevents unbounded memory growth if the database is unavailable.
+     */
+    public static final int DB_MAX_QUEUE_SIZE = 10000;
+
     // ==================== DISCORD WEBHOOK ====================
 
     /**

@@ -162,8 +162,8 @@ public class AlertPreferenceManager {
                     for (String cat : parts[1].split(",")) {
                         try {
                             muted.add(AlertCategory.valueOf(cat.trim().toUpperCase()));
-                        } catch (IllegalArgumentException ignored) {
-                            // Skip invalid categories
+                        } catch (IllegalArgumentException e) {
+                            plugin.getLogger().warning("[AlertPreferences] Invalid alert category: " + cat.trim());
                         }
                     }
                 }

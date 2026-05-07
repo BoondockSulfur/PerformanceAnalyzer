@@ -259,10 +259,11 @@ public class PerformanceDropAnalyzer {
                     tileEntityCount += analysis.tileEntities;
                     redstoneCount += analysis.redstoneComponents;
 
-                    // Debug: Log chunks with redstone
+                    // Debug: Log chunks with redstone (show block coordinates for clarity)
                     if (analysis.redstoneComponents > 20 || analysis.tileEntities > 5) {
                         plugin.getLogger().info("[PerformanceDrop] Chunk [" + chunk.getX() + "," + chunk.getZ() +
-                            "]: " + analysis.tileEntities + " TileEntities, " + analysis.redstoneComponents + " Redstone (estimated)");
+                            "] (blocks ~" + (chunk.getX() * 16) + "," + (chunk.getZ() * 16) +
+                            "): " + analysis.tileEntities + " TileEntities, " + analysis.redstoneComponents + " Redstone (estimated)");
                     }
 
                     // Store chunk data for sorting
@@ -297,8 +298,9 @@ public class PerformanceDropAnalyzer {
 
                     // Check against configured thresholds
                     if (chunkData.tileEntities > tileEntityThreshold || chunkData.redstoneComponents > redstoneThreshold) {
-                        String chunkInfo = String.format("%s [%d,%d]: %d TileEntities, ~%d Redstone (estimated)",
+                        String chunkInfo = String.format("%s [Chunk %d,%d | Blocks ~%d,%d]: %d TileEntities, ~%d Redstone (estimated)",
                             chunkData.worldName, chunkData.x, chunkData.z,
+                            chunkData.x * 16, chunkData.z * 16,
                             chunkData.tileEntities, chunkData.redstoneComponents);
                         problematicChunks.add(chunkInfo);
                         plugin.getLogger().info("[PerformanceDrop] Added to problematic list: " + chunkInfo);
@@ -374,7 +376,7 @@ public class PerformanceDropAnalyzer {
 
                 // Find the world data for the problematic world
                 for (Map<String, Object> worldInfo : worldData) {
-                    if (worldInfo.get("name").equals(problematicWorld)) {
+                    if (Objects.equals(worldInfo.get("name"), problematicWorld)) {
                         data.put("problematicWorldEntities", worldInfo.get("entities"));
                         data.put("problematicWorldTileEntities", worldInfo.get("tileEntities"));
                         data.put("problematicWorldRedstone", worldInfo.get("redstoneComponents"));
@@ -494,15 +496,24 @@ public class PerformanceDropAnalyzer {
                     }
                 }
 
-                // Extrapolate redstone count based on sampling rate
-                if (thorough) {
-                    redstoneComponents *= 8;  // Sampled every 2nd block = 1/8th
+                // Only extrapolate if we found a meaningful number of components.
+                // A single component in the sample is likely a naturally generated block
+                // (village, temple) and extrapolating it would produce massive false positives.
+                if (redstoneComponents >= 3) {
+                    if (thorough) {
+                        redstoneComponents *= 8;  // Sampled every 2nd block = 1/8th
+                    } else {
+                        redstoneComponents *= 64; // Sampled every 4th block = 1/64th
+                    }
                 } else {
-                    redstoneComponents *= 64; // Sampled every 4th block = 1/64th
+                    // Below threshold: report only what was actually found, no extrapolation
+                    // This prevents a single naturally-occurring block from being reported as dozens
                 }
 
             } catch (Exception e) {
-                // Snapshot might cause an error, skip it
+                if (plugin.getLogger().isLoggable(java.util.logging.Level.FINE)) {
+                    plugin.getLogger().fine("[PerformanceDrop] ChunkSnapshot analysis error: " + e.getMessage());
+                }
             }
 
             return new ChunkAnalysis(tileEntities, redstoneComponents);
@@ -540,22 +551,29 @@ public class PerformanceDropAnalyzer {
                 }
             }
 
-            // Extrapolate redstone count based on sampling rate
-            if (thorough) {
-                redstoneComponents *= 8;  // Sampled every 2nd block = 1/8th
-            } else {
-                redstoneComponents *= 64; // Sampled every 4th block = 1/64th
+            // Only extrapolate if we found a meaningful number of components
+            if (redstoneComponents >= 3) {
+                if (thorough) {
+                    redstoneComponents *= 8;  // Sampled every 2nd block = 1/8th
+                } else {
+                    redstoneComponents *= 64; // Sampled every 4th block = 1/64th
+                }
             }
 
         } catch (Exception e) {
-            // Chunk might be unloaded or cause an error, skip it
+            if (plugin.getLogger().isLoggable(java.util.logging.Level.FINE)) {
+                plugin.getLogger().fine("[PerformanceDrop] Chunk analysis error: " + e.getMessage());
+            }
         }
 
         return new ChunkAnalysis(tileEntities, redstoneComponents);
     }
 
     /**
-     * Check if a material is a redstone component.
+     * Check if a material is an active redstone component that can cause lag.
+     * Only includes components that actively tick or update — NOT passive blocks
+     * like buttons, pressure plates, lecterns, or daylight detectors which
+     * appear in naturally generated structures and don't impact performance.
      */
     private boolean isRedstoneComponent(Material type) {
         return type == Material.REDSTONE_WIRE ||
@@ -569,33 +587,7 @@ public class PerformanceDropAnalyzer {
                type == Material.STICKY_PISTON ||
                type == Material.DISPENSER ||
                type == Material.DROPPER ||
-               type == Material.HOPPER ||
-               type == Material.LEVER ||
-               type == Material.STONE_BUTTON ||
-               type == Material.OAK_BUTTON ||
-               type == Material.SPRUCE_BUTTON ||
-               type == Material.BIRCH_BUTTON ||
-               type == Material.JUNGLE_BUTTON ||
-               type == Material.ACACIA_BUTTON ||
-               type == Material.DARK_OAK_BUTTON ||
-               type == Material.CRIMSON_BUTTON ||
-               type == Material.WARPED_BUTTON ||
-               type == Material.STONE_PRESSURE_PLATE ||
-               type == Material.OAK_PRESSURE_PLATE ||
-               type == Material.SPRUCE_PRESSURE_PLATE ||
-               type == Material.BIRCH_PRESSURE_PLATE ||
-               type == Material.JUNGLE_PRESSURE_PLATE ||
-               type == Material.ACACIA_PRESSURE_PLATE ||
-               type == Material.DARK_OAK_PRESSURE_PLATE ||
-               type == Material.CRIMSON_PRESSURE_PLATE ||
-               type == Material.WARPED_PRESSURE_PLATE ||
-               type == Material.LIGHT_WEIGHTED_PRESSURE_PLATE ||
-               type == Material.HEAVY_WEIGHTED_PRESSURE_PLATE ||
-               type == Material.TRIPWIRE ||
-               type == Material.TRIPWIRE_HOOK ||
-               type == Material.TARGET ||
-               type == Material.LECTERN ||
-               type == Material.DAYLIGHT_DETECTOR;
+               type == Material.HOPPER;
     }
 
     /**

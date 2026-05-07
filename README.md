@@ -214,7 +214,20 @@ print(f"TPS: {data['tps']}, MSPT: {data['mspt']['avg']}ms")
 
 ## 📝 Changelog
 
-### v2.3.3 (Latest)
+### v2.3.4 (Latest)
+
+**Bugfixes:**
+- ✅ Fixed redstone false positives from naturally generated structures (villages, temples)
+- ✅ Fixed sampling extrapolation inflating redstone counts (single button → reported as 64)
+- ✅ Fixed wrong coordinates in problematic chunk reports (now shows block coords)
+- ✅ Fixed NullPointerException in PerformanceDropAnalyzer world comparison
+- ✅ Fixed unbounded database queue causing potential OutOfMemoryError
+- ✅ Optimized `isNearLiquid()` from 27 to 7 block checks per movement event
+- ✅ Consolidated duplicated alert cooldown constants
+- ✅ Fixed silent config parsing failures in AlertPreferenceManager
+- ✅ Fixed thread-safety issue in WorldStatsManager trend history
+
+### v2.3.3
 
 **Bugfixes:**
 - ✅ Fixed sneaking/swimming/climbing triggering false speed alerts

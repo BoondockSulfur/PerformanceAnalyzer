@@ -151,6 +151,12 @@ public class DatabaseManager {
      * @param description Optional description or context
      */
     public void logAsync(String type, double value, String description) {
+        if (queue.size() >= Constants.DB_MAX_QUEUE_SIZE) {
+            if (config.debugMode()) {
+                plugin.getLogger().warning("[Database] Queue full (" + Constants.DB_MAX_QUEUE_SIZE + "), dropping entry: " + type);
+            }
+            return;
+        }
         queue.add(new LogEntry(type, value, description));
     }
 

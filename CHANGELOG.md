@@ -7,10 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.4] - 2026-05-07
+
+### Fixed
+- **Redstone False Positives in Performance Drop Analyzer**: Removed 26 non-performance-impacting blocks (buttons, pressure plates, lecterns, daylight detectors, tripwire, levers, targets) from `isRedstoneComponent()`. These blocks appear in naturally generated structures (villages, temples) and caused massive false positives through sampling extrapolation
+- **Redstone Sampling Extrapolation**: Added minimum threshold (≥3 components found) before extrapolating redstone counts. Previously, a single naturally-generated button was multiplied by ×64, producing false "problematic redstone" reports
+- **Wrong Coordinates in Problematic Chunk Reports**: Chunk coordinates are now displayed alongside block coordinates (`[Chunk X,Z | Blocks ~X,Z]`) for easier in-game navigation
+- **NullPointerException in PerformanceDropAnalyzer**: `worldInfo.get("name").equals(...)` replaced with `Objects.equals()` to prevent NPE when world name is null
+- **Swallowed Exceptions in Chunk Analysis**: ChunkSnapshot and synchronous chunk analysis errors are now logged at `FINE` level instead of being silently ignored
+- **Unbounded Database Queue (OOM Risk)**: `DatabaseManager.logAsync()` now enforces a maximum queue size of 10,000 entries. Prevents `OutOfMemoryError` when the database is unavailable for extended periods
+- **Excessive Block Checks in MovementChecker**: `isNearLiquid()` reduced from 27 block checks (3×3×3 cube) to 7 checks (current block + 6 adjacent faces), reducing CPU load per `PlayerMoveEvent` by ~74%
+- **Duplicated Alert Cooldown Constants**: `AlertManager` and `MovementAlertManager` now use the centralized `Constants.ALERT_COOLDOWN_MS` instead of defining their own identical values
+- **Silent Config Parsing Failures**: Invalid alert categories in `AlertPreferenceManager` now log a warning instead of being silently skipped
+- **Thread-Safety in WorldStatsManager**: Trend history lists now use `Collections.synchronizedList()` to prevent concurrent modification issues
+
+### Added
+- `Constants.DB_MAX_QUEUE_SIZE` — centralized maximum queue size for database log entries
+
+---
+
 ## [2.3.3] - 2026-04-12
 
 ### Fixed
-- **Sneaking/Swimming/Climbing False Positives**: These movement types are now skipped entirely by the speed checker. Sneaking at 0.16 b/t was triggering alerts with a threshold of 0.15 (walk * 0.3) — nobody speed-hacks while sneaking
+- **Sneaking/Swimming/Climbing False Positives**: These movement types are now skipped entirely by the speed checker.
 - **Silk Touch Ores Not Recognized as Self-Placed**: The player-placed block check now applies to ALL worlds, not just restricted worlds. Previously, silk-touching an ore block, placing it in your base, and breaking it would count toward XRay detection
 - **Y-Level Pattern Analysis Removed**: Completely removed the Y-Level analysis feature. Mining at optimal Y-levels is normal gameplay (anyone can Google "best Y level for diamonds") and produced false positives
 
@@ -212,6 +231,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Upgrade Guide
+
+### From 2.3.3 to 2.3.4
+1. Replace plugin JAR
+2. Restart server
+3. Redstone detection in Performance Drop Analyzer is now much more accurate — false positives from villages/temples are eliminated
+
+**No breaking changes** - fully backward compatible.
 
 ### From 2.3.2 to 2.3.3
 1. Replace plugin JAR
