@@ -84,6 +84,14 @@
       <version>${sqlite.version}</version>
     </dependency>
 
+    <!-- bStats metrics (shaded & relocated, plugin id 32115) -->
+    <dependency>
+      <groupId>org.bstats</groupId>
+      <artifactId>bstats-bukkit</artifactId>
+      <version>3.0.2</version>
+      <scope>compile</scope>
+    </dependency>
+
     <!-- JUnit 5 (tests only) -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -129,6 +137,10 @@
                 <relocation>
                   <pattern>com.zaxxer.hikari</pattern>
                   <shadedPattern>dev.boondock.shaded.com.zaxxer.hikari</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.bstats</pattern>
+                  <shadedPattern>dev.boondock.shaded.org.bstats</shadedPattern>
                 </relocation>
               </relocations>
               <minimizeJar>true</minimizeJar>

@@ -85,6 +85,8 @@ API. The AntiCheat module moved into its own plugin, **BS-AntiCheat**.
   (`database.fallback_file_logging`, `database.fallback_log_file`).
 - JUnit 5 unit tests for the pure logic (Baseline, SeverityModel, TickStats)
   wired into the Maven build via Surefire.
+- Anonymous [bStats](https://bstats.org/plugin/bukkit/PerformanceAnalyzer/32115)
+  usage metrics (shaded & relocated; opt-out via `plugins/bStats/config.yml`).
 
 ### Fixed
 - **The analyzer no longer freezes the server during lag**: the v2 analyzer

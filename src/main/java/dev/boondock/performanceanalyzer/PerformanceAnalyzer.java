@@ -57,6 +57,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
 
     private CommandRegistry commandRegistry;
     private MetricsAPI metricsApi;
+    private org.bstats.bukkit.Metrics bstats;
 
     @Override
     public void onEnable() {
@@ -154,6 +155,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
             this.metricsApi.start();
         }
 
+        // bStats anonymous usage metrics (https://bstats.org/plugin/bukkit/PerformanceAnalyzer/32115)
+        this.bstats = new org.bstats.bukkit.Metrics(this, 32115);
+
         Scheduling.runAsyncDelayed(this, this::checkForUpdates, 3_000L);
 
         getLogger().info("PerformanceAnalyzer v" + getDescription().getVersion()
@@ -176,6 +180,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (bstats != null) bstats.shutdown();
         if (metricsApi != null) metricsApi.stop();
         if (monitorService != null) monitorService.stop();
         if (listenerTimings != null) listenerTimings.stop();

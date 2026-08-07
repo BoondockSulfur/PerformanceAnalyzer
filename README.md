@@ -68,6 +68,13 @@ If you exported v2.x MSPT values to dashboards, expect the numbers to drop drama
 - [ProtocolLib](https://www.spigotmc.org/resources/protocollib.1997/) — packet-flood detection
 - **BS-AntiCheat** — the former AntiCheat module, now a separate plugin
 
+### Metrics
+PerformanceAnalyzer collects anonymous usage statistics via
+[bStats](https://bstats.org/plugin/bukkit/PerformanceAnalyzer/32115)
+(server count, MC/Java version, player count — no personal data, nothing
+about your performance numbers). Opt out globally for all plugins in
+`plugins/bStats/config.yml`.
+
 ---
 
 ## 📖 Commands & Permissions
