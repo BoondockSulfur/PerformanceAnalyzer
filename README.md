@@ -34,7 +34,7 @@ If you exported v2.x MSPT values to dashboards, expect the numbers to drop drama
 - 🧠 **Adaptive baseline** — the server learns its own normal tick time; a server that idles at 5 ms alerts far earlier than one that idles at 30 ms
 - 🚦 **Documented severity model** — OK / NOTICE / WARNING / CRITICAL / EMERGENCY with a transparent 0–100 score (see below)
 - 🔍 **Incident engine** — incidents open, escalate and resolve as a lifecycle (with duration and a "resolved" notification), instead of one-shot "drop" spam
-- 🧾 **Findings with confidence** — every attributed cause is labeled **MEASURED** or **HEURISTIC**, checked in order: GC → plugin listeners → hot chunks → chunk generation/churn → entity hotspots
+- 🧾 **Findings with confidence** — every attributed cause is labeled **MEASURED** or **HEURISTIC**, checked in order: world save/backup → GC → plugin listeners → hot chunks → chunk generation/churn → entity hotspots. Tick stalls right after a `WorldSaveEvent` (autosave, backup `save-all`) are attributed to the save instead of showing up as "no clear cause"
 - ♻️ **GC monitoring** — GC pause deltas, old-gen occupancy *after* collection (the only honest memory-pressure signal), metaspace
 - ⚡ **Single-tick spike detection** — one tick above `thresholds.spike_tick_ms` triggers immediate analysis
 - 🔥 **Per-chunk activity rates** — redstone firings, piston movements, hopper item moves, spawns, chunk loads/gens per second in 10 s windows (what *fires*, not what merely exists)

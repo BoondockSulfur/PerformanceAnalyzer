@@ -37,9 +37,11 @@ API. The AntiCheat module moved into its own plugin, **BS-AntiCheat**.
   notification. `/perfincidents` (aliases `pi`, `perfdrops`, `incidents`)
   replaces `/perfdrops`.
 - **Root-cause attribution is ordered and confidence-labeled**: findings are
-  marked MEASURED or HEURISTIC and checked GC → plugin listener timings →
-  hot chunks → chunk generation/churn → entity hotspots, so a GC-caused
-  spike is never blamed on redstone.
+  marked MEASURED or HEURISTIC and checked world save/backup → GC → plugin
+  listener timings → hot chunks → chunk generation/churn → entity hotspots,
+  so a GC-caused spike is never blamed on redstone. Tick stalls within 12 s
+  of a `WorldSaveEvent` (autosave, backup `save-all` — the nightly false
+  alarm source) are pinned to the save as the top finding.
 - **Plugin analysis measures real cost**: `timing/ListenerTimings.java` wraps
   other plugins' event handlers and accumulates actual milliseconds per
   plugin, replacing the `listeners*2 + tasks*3` registration-count risk score

@@ -336,6 +336,10 @@ finding:
     title: "Entity-Hotspot in %s bei %d, %d"
     detail: "&7%d Entities in einem Chunk, überwiegend &f%s&7 (%d)"
     recommendation: "Farm/Ansammlung ausdünnen; ggf. Entity-Cramming-Limits oder Farm-Redesign."
+  worldsave:
+    title: "Weltspeicherung / Backup läuft"
+    detail: "&7Welt '%s' wurde %d s vor dieser Auswertung gespeichert - Speichern pausiert die Tick-Schleife kurz"
+    recommendation: "Routine-Speicherungen sind harmlos. Falls das häufig auftritt oder lange dauert: Backup-Zeitplan und Festplattengeschwindigkeit prüfen."
   unknown:
     title: "Keine eindeutige Einzelursache gefunden"
     detail: "&7Die Lag-Quelle liegt nicht bei den instrumentierten Ursachen (GC, Plugins, Chunk-Aktivität, Entities)."

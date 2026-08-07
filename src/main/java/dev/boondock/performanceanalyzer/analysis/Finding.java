@@ -28,6 +28,7 @@ public record Finding(
     }
 
     public enum Type {
+        WORLD_SAVE,
         GC_PRESSURE,
         MEMORY_PRESSURE,
         PLUGIN_LOAD,

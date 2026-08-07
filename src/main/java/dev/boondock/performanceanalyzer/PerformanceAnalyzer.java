@@ -117,6 +117,8 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
                 chunkTracker, entityAnalyzer, database);
         this.incidentAnalyzer.setListenerTimings(listenerTimings);
         this.incidentAnalyzer.setListener(alertManager);
+        // WorldSaveEvent marker for save-stall attribution
+        getServer().getPluginManager().registerEvents(incidentAnalyzer, this);
 
         this.monitorService = new MonitorService(this, tickTimeSampler, gcSampler, incidentAnalyzer);
         this.monitorService.setLanguage(lang);

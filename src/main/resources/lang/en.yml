@@ -336,6 +336,10 @@ finding:
     title: "Entity hotspot in %s at %d, %d"
     detail: "&7%d entities in one chunk, mostly &f%s&7 (%d)"
     recommendation: "Thin out the farm/crowd; consider hopper minecart redesigns or entity cramming limits."
+  worldsave:
+    title: "World save / backup in progress"
+    detail: "&7World '%s' was saved %d s before this evaluation - saves pause the tick loop briefly"
+    recommendation: "Routine saves are harmless. If this fires often or stalls long, check your backup schedule and disk speed."
   unknown:
     title: "No clear single cause found"
     detail: "&7The lag source is not among the instrumented causes (GC, plugins, chunk activity, entities)."

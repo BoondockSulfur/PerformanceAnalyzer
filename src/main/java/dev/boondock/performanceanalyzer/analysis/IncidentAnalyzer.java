@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *       Paper only, budgeted, once per incident refresh cycle.</li>
  * </ol>
  */
-public final class IncidentAnalyzer {
+public final class IncidentAnalyzer implements org.bukkit.event.Listener {
 
     /** Callback for incident lifecycle events (wired to the alert system). */
     public interface Listener {
@@ -46,6 +46,8 @@ public final class IncidentAnalyzer {
     private static final int MAX_STORED_INCIDENTS = 30;
     private static final long RESOLVE_GRACE_MS = 30_000L;
     private static final long FINDINGS_REFRESH_MS = 5_000L;
+    /** How long after a WorldSaveEvent a stall is attributed to the save. */
+    private static final long WORLD_SAVE_ATTRIBUTION_MS = 12_000L;
 
     private final Plugin plugin;
     private final LanguageManager lang;
@@ -63,6 +65,8 @@ public final class IncidentAnalyzer {
     private volatile Incident active;
     private long healthySinceMs = -1;
     private long lastFindingsRefreshMs;
+    private volatile long lastWorldSaveAtMs;
+    private volatile String lastSavedWorldName = "";
     private volatile List<EntityAnalyzer.EntityHotspot> lastEntityHotspots = List.of();
     private volatile boolean entitySweepPending;
 
@@ -83,6 +87,18 @@ public final class IncidentAnalyzer {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * World saves (autosave, backup plugins running save-all) pause the tick
+     * loop for the duration of the save. Without this marker such stalls
+     * ended up as "no clear cause" — or worse, blamed on unrelated content
+     * (observed nightly at 00:00 when the backup container triggered a save).
+     */
+    @org.bukkit.event.EventHandler
+    public void onWorldSave(org.bukkit.event.world.WorldSaveEvent event) {
+        this.lastWorldSaveAtMs = System.currentTimeMillis();
+        this.lastSavedWorldName = event.getWorld().getName();
     }
 
     /* ------------------------------------------------------------------ */
@@ -278,6 +294,19 @@ public final class IncidentAnalyzer {
         }
 
         findings.sort(Comparator.comparingInt((Finding f) -> f.severity().level()).reversed());
+
+        // 7. World save attribution: if a save happened just before this
+        // evaluation, it is by far the most likely cause of a short stall —
+        // pin it to the top regardless of its (deliberately low) severity.
+        long sinceSaveMs = System.currentTimeMillis() - lastWorldSaveAtMs;
+        if (lastWorldSaveAtMs > 0 && sinceSaveMs <= WORLD_SAVE_ATTRIBUTION_MS) {
+            findings.add(0, Finding.global(Finding.Type.WORLD_SAVE, Severity.NOTICE,
+                    Finding.Confidence.MEASURED,
+                    lang.format("finding.worldsave.title"),
+                    lang.format("finding.worldsave.detail", lastSavedWorldName, sinceSaveMs / 1000),
+                    lang.format("finding.worldsave.recommendation"),
+                    sinceSaveMs / 1000.0));
+        }
 
         if (findings.isEmpty()) {
             findings.add(Finding.global(Finding.Type.UNKNOWN, Severity.NOTICE, Finding.Confidence.HEURISTIC,
