@@ -72,28 +72,48 @@ public class PlayerActivityTracker implements Listener {
         Location to = event.getTo();
         Location from = event.getFrom();
 
+        // Guard: destination (or its world) can be null mid-teleport
+        if (to == null || to.getWorld() == null) {
+            return;
+        }
+
+        // Cross-world moves must never reach distance()/distanceSquared()
+        // (throws IllegalArgumentException). Treat them as a tracked move.
+        boolean crossWorld = from.getWorld() == null || !from.getWorld().equals(to.getWorld());
+
         // Only count if actually moved (not just head rotation)
-        if (to == null || from.distanceSquared(to) < 0.01) {
+        if (!crossWorld && from.distanceSquared(to) < 0.01) {
             return;
         }
 
-        // PERFORMANCE OPTIMIZATION: Sampling strategy
-        // Option 1: Count every Nth movement
+        // Sampling strategy: count every Nth move, OR when the player has
+        // covered a significant distance since the last tracked position.
+        // v2 bug: the sample-rate early return skipped the tracked-location
+        // update, so the distance check later fired against stale positions.
+        // Both paths now update the tracking state coherently.
+        boolean counted = false;
+
         int count = movementCounter.merge(playerId, 1, Integer::sum);
-        if (count % MOVEMENT_SAMPLE_RATE == 0) {
-            getActivity(player).movements++;
+        if (count >= MOVEMENT_SAMPLE_RATE) {
             movementCounter.put(playerId, 0);
-            return;
+            counted = true;
         }
 
-        // Option 2: Or if significant distance (>2 blocks from last tracked position)
         Location lastLoc = lastTrackedLocation.get(playerId);
-        if (lastLoc != null && to.getWorld().equals(lastLoc.getWorld())) {
-            if (lastLoc.distance(to) > MOVEMENT_MIN_DISTANCE) {
-                getActivity(player).movements++;
-                lastTrackedLocation.put(playerId, to.clone());
-            }
-        } else {
+        boolean sameWorldAsLast = lastLoc != null && lastLoc.getWorld() != null
+                && lastLoc.getWorld().equals(to.getWorld());
+        if (!counted && sameWorldAsLast
+                && lastLoc.distanceSquared(to) > MOVEMENT_MIN_DISTANCE * MOVEMENT_MIN_DISTANCE) {
+            counted = true;
+        }
+
+        if (counted) {
+            getActivity(player).movements++;
+        }
+
+        // Keep the reference position fresh: on every counted move, on any
+        // world change and whenever we have no reference yet.
+        if (counted || !sameWorldAsLast) {
             lastTrackedLocation.put(playerId, to.clone());
         }
     }

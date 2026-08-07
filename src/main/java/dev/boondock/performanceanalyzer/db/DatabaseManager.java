@@ -3,8 +3,9 @@ package dev.boondock.performanceanalyzer.db;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import dev.boondock.performanceanalyzer.util.Constants;
-import org.bukkit.Bukkit;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
@@ -22,8 +23,8 @@ public class DatabaseManager {
     private final PluginConfig config;
     private HikariDataSource ds;
     private final ConcurrentLinkedQueue<LogEntry> queue = new ConcurrentLinkedQueue<>();
-    private int taskId = -1;
-    private int cleanupTaskId = -1;
+    private ScheduledTask flushTask;
+    private ScheduledTask cleanupTask;
     private boolean isMySQL = false;
     private FallbackLogger fallbackLogger;
     private volatile boolean databaseAvailable = true;
@@ -106,8 +107,8 @@ public class DatabaseManager {
         run("CREATE INDEX IF NOT EXISTS idx_logs_ts ON performance_logs(ts)");
 
         // Async Flush Task
-        int period = Math.max(1, config.logIntervalSeconds());
-        this.taskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::flushBatchSafe, period * 20L, period * 20L).getTaskId();
+        long periodMs = Math.max(1, config.logIntervalSeconds()) * 1000L;
+        this.flushTask = Scheduling.runAsyncRepeating(plugin, this::flushBatchSafe, periodMs, periodMs);
 
         // Auto-Cleanup Task (runs daily at server startup + 1 hour, then every 24 hours)
         startAutoCleanup();
@@ -126,10 +127,10 @@ public class DatabaseManager {
         }
 
         // Run cleanup 1 hour after startup, then every 24 hours
-        long initialDelay = 20L * 60 * 60; // 1 hour in ticks
-        long period = 20L * 60 * 60 * 24;  // 24 hours in ticks
+        long initialDelayMs = 60L * 60 * 1000;      // 1 hour
+        long periodMs = 24L * 60 * 60 * 1000;       // 24 hours
 
-        this.cleanupTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        this.cleanupTask = Scheduling.runAsyncRepeating(plugin, () -> {
             plugin.getLogger().info("[Database] Running auto-cleanup (retention: " + retentionDays + " days)...");
             try {
                 cleanOldData(retentionDays);
@@ -137,7 +138,7 @@ public class DatabaseManager {
                 plugin.getLogger().severe("[Database] Auto-cleanup failed: " + e.getMessage());
                 e.printStackTrace();
             }
-        }, initialDelay, period).getTaskId();
+        }, initialDelayMs, periodMs);
 
         plugin.getLogger().info("[Database] Auto-cleanup scheduled: retention " + retentionDays + " days, runs daily");
     }
@@ -221,8 +222,10 @@ public class DatabaseManager {
      */
     public void shutdown() {
         try {
-            if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
-            if (cleanupTaskId != -1) Bukkit.getScheduler().cancelTask(cleanupTaskId);
+            Scheduling.cancel(flushTask);
+            Scheduling.cancel(cleanupTask);
+            flushTask = null;
+            cleanupTask = null;
             flushBatchSafe();
             if (fallbackLogger != null) {
                 fallbackLogger.shutdown();
@@ -338,16 +341,16 @@ public class DatabaseManager {
 
     /**
      * Finds performance spikes where MSPT exceeded a threshold.
-     * @param thresholdMspt MSPT threshold
+     * @param spikeThresholdMs MSPT threshold in milliseconds
      * @param minutesBack Time window
      * @return Count of spikes
      */
-    public int countPerformanceSpikes(double thresholdMspt, int minutesBack) {
+    public int countPerformanceSpikes(double spikeThresholdMs, int minutesBack) {
         String sql = "SELECT COUNT(*) as spike_count FROM performance_logs " +
                      "WHERE log_type = 'mspt' AND value > ? " +
                      "AND " + getTimeSinceSQL(TimeUnit.MINUTE);
         try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setDouble(1, thresholdMspt);
+            ps.setDouble(1, spikeThresholdMs);
             ps.setInt(2, minutesBack);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -356,28 +359,6 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("Query error (countPerformanceSpikes): " + e.getMessage());
-            e.printStackTrace();
-        }
-        return 0;
-    }
-
-    /**
-     * Delete anticheat log entries for a specific player.
-     * Matches entries where the description starts with the player name.
-     *
-     * @param playerName The player name to delete entries for
-     * @param logTypePrefix Log type prefix to match (e.g., "anticheat_" for all, "anticheat_speed" for speed only)
-     * @return Number of deleted entries
-     */
-    public int deleteAntiCheatLogs(String playerName, String logTypePrefix) {
-        String sql = "DELETE FROM performance_logs WHERE log_type LIKE ? AND description LIKE ?";
-        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, logTypePrefix + "%");
-            ps.setString(2, playerName + ":%");
-            int deleted = ps.executeUpdate();
-            return deleted;
-        } catch (SQLException e) {
-            plugin.getLogger().severe("Delete error (deleteAntiCheatLogs): " + e.getMessage());
             e.printStackTrace();
         }
         return 0;

@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  *
  * Usage:
  *   /perfsilent           - Toggle ALL alerts on/off
- *   /perfsilent <type>    - Toggle specific type (xray, movement, performance)
+ *   /perfsilent <type>    - Toggle specific type (performance)
  *   /perfsilent list      - Show current alert preferences
  *
  * @since 2.3.1

@@ -18,119 +18,27 @@ general:
 # ===================
 status:
   title: "&aServer-Performance (Live)"
-  title_spark: "&aServer-Performance &7(via Spark)"
-  tps: "&7TPS (approx): &f%value%"
-  tps_spark: "&7TPS: &f%tps10s% &7(10s) | &f%tps1m% &7(1m) | &f%tps5m% &7(5m)"
-  mspt_avg: "&7MSPT avg/p95: &f%avg% / %p95% ms"
-  mspt_spark: "&7MSPT: &f%avg% &7avg | &f%p95% &7p95 | &f%max% &7max"
-  heap: "&7Heap-Nutzung: &f%value%%"
+  no_data: "&7Messdaten werden noch gesammelt, versuche es in ein paar Sekunden erneut..."
+  tps_windows: "&7TPS (10s/60s): &f%tps10% &7/ &f%tps60%"
+  mspt_detail: "&7Tickzeit avg/p50/p95/p99/max: &f%avg% / %p50% / %p95% / %p99% / %max% ms"
+  mspt_note: "&8(echte Tick-Arbeitszeit - einstellige Werte sind gesund, 50 ms ist die Deadline)"
+  mspt_note_estimated: "&8(aus Tick-Intervallen geschätzt - diese Plattform feuert keine Tick-Events; nur Überlast ist messbar)"
+  severity: "&7Status: %color%&l%severity%&r &7(Score: &f%score%&7/100)"
+  gc: "&7GC (60s): &f%time% ms &7in &f%count% &7Sammlungen | Old-Gen nach GC: &f%oldgen%"
+  heap_detail: "&7Heap: &f%used% &7/ &f%max% MB &7(%percent%%)"
+  baseline: "&7Gelernter Normalwert (Tickzeit): &f%value% ms"
   cpu: "&7CPU: &f%system%%&7 System | &f%process%%&7 Prozess"
-  alert_title: "&cAchtung!"
-  alert_message: "&7Leicht erhoehte Latenz/Heap."
 
 # ===================
 # Performance History
 # ===================
 history:
   title: "&aPerformance-Verlauf (letzte %minutes% Minuten)"
-  title_spark: "&aPerformance-Verlauf &7(via Spark, letzte %minutes% Minuten)"
   invalid_time: "&cUngueltige Zeitangabe. Nutze: /perfhistory [Minuten]"
   mspt_history: "&7MSPT-Verlauf: &f%sparkline%"
   live_avg: "&7Live - Durchschnitt: &f%value% ms"
-  live_tps: "&7Live TPS: &f%tps10s% &7(10s) | &f%tps1m% &7(1m) | &f%tps5m% &7(5m)"
   db_avg: "&7DB (%minutes% min) - Durchschnitt: &f%value% ms"
   spikes_warning: "&eAchtung: &f%count% Performance-Spikes ueber %threshold% ms"
-
-# ===================
-# AntiCheat Whitelist
-# ===================
-acwhitelist:
-  header: "&a&m-----&r &aAntiCheat Whitelist &a&m-----"
-  footer: "&a&m------------------------"
-  help_title: "&a&lAntiCheat Whitelist"
-  help_add_player: "&7/acwhitelist add <player> &f- Spieler hinzufuegen"
-  help_add_group: "&7/acwhitelist add group:<name> &f- Gruppe hinzufuegen"
-  help_remove_player: "&7/acwhitelist remove <player> &f- Spieler entfernen"
-  help_remove_group: "&7/acwhitelist remove group:<name> &f- Gruppe entfernen"
-  help_list: "&7/acwhitelist list &f- Whitelist anzeigen"
-  usage_add: "&cNutze: /acwhitelist add <player|group:Gruppenname>"
-  usage_remove: "&cNutze: /acwhitelist remove <player|group:Gruppenname>"
-  group_added: "&aGruppe &f%group% &azur AntiCheat-Whitelist hinzugefuegt."
-  group_removed: "&aGruppe &f%group% &avon AntiCheat-Whitelist entfernt."
-  player_added: "&aSpieler &f%player% &azur AntiCheat-Whitelist hinzugefuegt."
-  player_removed: "&aSpieler &f%player% &avon AntiCheat-Whitelist entfernt."
-  players_label: "&7Spieler:"
-  players_none: "&7Spieler: &cKeine"
-  player_entry: "  &f- %player%"
-  player_invalid: "  &f- %uuid% &c(ungueltig)"
-  groups_label: "&7Gruppen:"
-  groups_none: "&7Gruppen: &cKeine"
-  group_entry: "  &f- %group%"
-
-# ===================
-# XRay Alerts
-# ===================
-xray:
-  disabled: "&c[XRay] AntiCheat-Modul ist deaktiviert!"
-  disabled_hint: "&7Aktiviere es in config.yml: &fanticheat_enabled: true"
-  alerts_cleared_all: "&aAlle XRay-Alerts wurden geloescht."
-  alerts_cleared_player: "&aAlerts fuer &f%player% &awurden geloescht."
-  no_suspicious: "&aKeine verdaechtigen Spieler gefunden."
-  list_header: "&e&l--- XRay Verdaechtige Spieler ---"
-  status_online: "&a[Online]"
-  status_offline: "&7[Offline]"
-  list_entry: "%status% &f%player% &7- &c%count% Alerts &7| &e/xrayalerts %player%"
-  list_hint_details: "&7Nutze &f/xrayalerts <spieler> &7fuer Details."
-  list_hint_clear: "&7Nutze &f/xrayalerts clear <spieler> &7zum Loeschen."
-  detail_header: "&e&l--- XRay Alerts: %player% ---"
-  detail_hint_clear: "&7Nutze &f/xrayalerts clear %player% &7zum Loeschen."
-  no_alerts_player: "&7Keine Alerts fuer diesen Spieler."
-  alert_entry: "&7[%time%] &e%type%: &f%message% &7(%count% Erze)"
-  ores_label: "  &7Erze: &f%ores%"
-  locations_label: "  &7Positionen:"
-  location_entry: "    &8- &f%location%"
-  db_cleared: "&aDB-Eintraege fuer &f%player% &ageloescht. &7(%count% Eintraege entfernt)"
-  db_clear_hint: "&7Um auch DB-Eintraege zu loeschen: &f/xrayalerts clear %player% --db"
-  admin_alert: "&e[XRay] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/xrayalerts %player% &efuer Details"
-
-# ===================
-# XRay Ores
-# ===================
-xrayores:
-  help_header: "&e&l--- XRay Erz-Ausnahmen ---"
-  help_list: "&7/xrayores list &f- Ausgenommene Erze anzeigen"
-  help_available: "&7/xrayores available &f- Verfuegbare Erze anzeigen"
-  help_add: "&7/xrayores add <erz> &f- Erz ausschliessen"
-  help_remove: "&7/xrayores remove <erz> &f- Erz wieder tracken"
-  usage_add: "&cVerwendung: /xrayores add <erz>"
-  usage_remove: "&cVerwendung: /xrayores remove <erz>"
-  list_header: "&e&l--- Ausgenommene Erze ---"
-  list_none: "&7Keine Erze ausgenommen. Alle werden getrackt."
-  list_entry: "&a- &f%ore%"
-  list_hint: "&7Nutze &f/xrayores available &7fuer alle verfuegbaren Erze."
-  available_header: "&e&l--- Verfuegbare Erze ---"
-  available_excluded: "&c[Ausgenommen]"
-  available_tracked: "&a[Getrackt]"
-  unknown_ore: "&cUnbekanntes Erz: %ore%"
-  unknown_ore_hint: "&7Nutze &f/xrayores available &7fuer gueltige Erze."
-  invalid_ore: "&cUngueltiges Erz: %ore%"
-  already_excluded: "&e%ore% ist bereits ausgenommen."
-  added: "&a%ore% wurde zur Ausnahmeliste hinzugefuegt."
-  added_hint: "&7Deepslate-Variante wird automatisch mitausgenommen."
-  not_excluded: "&e%ore% ist nicht in der Ausnahmeliste."
-  removed: "&a%ore% wurde von der Ausnahmeliste entfernt."
-
-# ===================
-# XRay Detection Messages
-# ===================
-xray_detection:
-  threshold_exceeded: "[XRay?] %player%: Schwellenwert ueberschritten in %time%s - %location%"
-  suspicious_ratio: "[XRay?] %player%: Verdaechtiges Erz/Stein-Verhaeltnis: %.2f%% (%ores% Erze, %stone% Steine) - %location%"
-  rare_ores_exceeded: "[XRay?] %player%: Seltene Erze ueberschritten in %time%s! - %location%"
-  unknown_location: "Unbekannt"
-  location_format: "Welt: %world%, Bereich: X[%minX%-%maxX%] Y[%minY%-%maxY%] Z[%minZ%-%maxZ%]"
-  location_entry: "%ore% @ %world% [%x%, %y%, %z%]"
-
 # ===================
 # Alerts
 # ===================
@@ -139,7 +47,6 @@ alerts:
   type_high_heap: "Hoher Heap-Verbrauch"
   type_tps_drop: "TPS-Einbruch"
   type_packet_flood: "Paket-Flut"
-  type_anticheat: "AntiCheat-Warnung"
   format: "&c[Performance Alert] &e%type%: &f%message% (Wert: %value%)"
 
 # ===================
@@ -153,133 +60,104 @@ gui:
   settings: "&eEinstellungen"
   settings_lore1: "&7Plugin-Konfiguration"
   settings_lore2: "&cNur fuer Admins"
-  anticheat: "&cAntiCheat"
-  anticheat_lore1: "&7AntiCheat-Status & Whitelist"
-  anticheat_lore2: "&eKlicken fuer Details"
   reload: "&6Plugin Neu Laden"
   reload_lore: "&7Konfiguration neu laden"
   close: "&cSchliessen"
   close_lore: "&7GUI schliessen"
   back: "&7Zurueck"
   back_lore: "&eZum Hauptmenue"
+  refresh: "&a&lAktualisieren"
+  refresh_lore: "&7Angezeigte Daten neu laden"
   data_refreshed: "&aDaten aktualisiert!"
+  status_pane: "%color%&lServer-Status: %severity%"
+  status_score_lore: "&7Dringlichkeits-Score: &f%score%&7/100"
+  stat_tps: "&7TPS (10s/60s): &f%tps10% / %tps60%"
+  stat_mspt: "&7Tickzeit avg/p95/max: &f%avg% / %p95% / %max% ms"
+  stat_heap: "&7Heap: &f%used% / %max% MB &7(%percent%%)"
+  stat_severity: "%color%%severity% &7(Score %score%/100)"
+  stat_no_data: "&7Messdaten werden gesammelt..."
+  nav_lag: "&6&lLag-Analyse"
+  nav_lag_lore: "&7Gemessene Plugin-Last & aktivste Spieler"
+  nav_incidents: "&c&lIncidents"
+  nav_incidents_lore: "&7Letzte Performance-Vorfaelle mit Ursachen"
 
 # ===================
-# GUI - Performance Stats
+# GUI - Lag-Analyse
 # ===================
-gui_stats:
-  tps: "&7TPS: &f%.2f"
-  mspt_avg: "&7MSPT (avg): &f%.2f ms"
-  mspt_p95: "&7MSPT (p95): &f%.2f ms"
-  heap: "&7Heap: &f%.1f%%"
+gui_lag:
+  title: "&6Lag-Analyse"
+  players_header: "&e&lAktivste Spieler"
+  players_header_lore1: "&7Top 5 nach Aktivitaet der letzten 10s"
+  players_header_lore2: "&7(Block-Interaktionen, Bewegung, Commands)"
+  players_disabled: "&cSpieler-Tracking deaktiviert"
+  players_disabled_lore1: "&7Aktiviere in der config.yml:"
+  players_disabled_lore2: "&elag_analysis.player_tracking: true"
+  no_player_data: "&7Noch keine Daten"
+  no_player_data_lore: "&7Warte auf Spieleraktivitaet..."
+  player_blocks: "&7Bloecke abgebaut/platziert: &f%breaks%&7/&f%places%"
+  player_moves: "&7Bewegungen: &f%moves%"
+  player_commands: "&7Commands: &f%commands%"
+  player_interactions: "&7Interaktionen: &f%interactions%"
+  player_score: "&6Aktivitaets-Score: &e%score%"
+  plugins_header: "&c&lPlugin-Last (gemessen)"
+  plugins_header_lore1: "&7Echte Zeit in Event-Listenern"
+  plugins_header_lore2: "&7pro Plugin, schwerste zuerst"
+  timings_disabled: "&cListener-Timings deaktiviert"
+  timings_disabled_lore1: "&7Aktiviere in der config.yml:"
+  timings_disabled_lore2: "&elag_analysis.plugin_analysis: true"
+  no_plugin_data: "&7Keine messbare Plugin-Last"
+  no_plugin_data_lore: "&7Bisher hat kein Plugin messbar Listener-Zeit verbraucht."
+  plugin_load: "&7Gemessen: &f%ms% ms/s &7(%percent%% eines Threads)"
+  plugin_calls: "&7Listener-Aufrufe: &f%calls%/s"
+  plugin_top_event: "&7Teuerstes Event: &f%event% &7(%ms% ms/s)"
+  clear: "&c&lDaten zuruecksetzen"
+  clear_lore: "&7Loescht alle Spieler-Aktivitaetsdaten"
+  cleared: "&aAktivitaetsdaten zurueckgesetzt!"
+
+# ===================
+# GUI - Incidents
+# ===================
+gui_incidents:
+  title: "&cPerformance-Incidents"
+  none: "&a&lKeine Incidents!"
+  none_lore: "&7Der Server laeuft ohne Vorfaelle."
+  entry: "&c&lIncident #%number%"
+  lore_severity: "%color%%severity% &7(Score %score%/100)"
+  lore_time: "&7Start: &f%start% &7| Dauer: &f%duration%"
+  lore_metrics: "&7Schlimmster Tick: &f%worst% ms &7| Niedrigste TPS: &f%tps%"
+  lore_cause: "&7Ursache: &f%cause%"
+  lore_click: "&eKlicken fuer Details (Chat)"
+  clear: "&c&lVerlauf loeschen"
+  clear_lore: "&7Loescht alle abgeschlossenen Incidents"
 
 # ===================
 # GUI - Config
 # ===================
 gui_config:
   title: "&eKonfiguration"
-  anticheat: "&cAntiCheat"
-  anticheat_lore: "&7Aktiviert/Deaktiviert AntiCheat"
   click_toggle: "&eKlicken zum Umschalten"
-  xray_detection: "&bXRay-Erkennung"
-  xray_detection_lore: "&7Aktiviert/Deaktiviert XRay-Detection"
   packet_analysis: "&dPaket-Analyse"
   packet_analysis_lore: "&7Aktiviert/Deaktiviert Paket-Analyse"
   packet_analysis_hint: "&eErfordert ProtocolLib"
   discord_webhook: "&9Discord Webhook"
   discord_webhook_lore: "&7Aktiviert/Deaktiviert Discord-Benachrichtigungen"
+  listener_timings: "&6Listener-Timings"
+  listener_timings_lore: "&7Misst die echte Zeit in Event-Listenern anderer Plugins"
+  requires_restart: "&8Wirkt nach Neustart oder /perfreload"
   setting_changed: "&aEinstellung geaendert: &f%setting%"
   status_enabled: "&aAktiviert"
   status_disabled: "&cDeaktiviert"
   status_format: "&7Status: %status%"
-
-# ===================
-# GUI - AntiCheat
-# ===================
-gui_anticheat:
-  title: "&cAntiCheat Status"
-  status_item: "&cAntiCheat Status"
-  status_lore: "&7Status: %status%"
-  whitelist_players_lore: "&7Whitelist Spieler: &f%count%"
-  whitelist_groups_lore: "&7Whitelist Gruppen: &f%count%"
-  whitelist_players: "&eWhitelist Spieler"
-  whitelist_players_count: "&7Anzahl: &f%count%"
-  whitelist_hint1: "&7Nutze &f/acwhitelist list"
-  whitelist_hint2: "&7um Details zu sehen"
-  whitelist_groups: "&eWhitelist Gruppen"
-  xray_detection: "&bXRay-Erkennung"
-  xray_timewindow: "&7Zeitfenster: &f%seconds%s"
-  xray_thresholds: "&7Schwellenwerte: &fPer-Erz (config.yml)"
-  xray_diamond_threshold: "&8Diamond: %value%"
-
 # ===================
 # Konsolen/Debug Nachrichten
 # ===================
 console:
-  xray_unknown_ore: "[XRay] Unbekanntes Erz in Ausnahmeliste: %ore%"
-  xray_excluded_ores: "[XRay] Ausgenommene Erze: %ores%"
-  xray_detection_disabled: "[XRay] Detection deaktiviert, ignoriere Event"
-  xray_player_whitelisted: "[XRay] Spieler %player% ist whitelisted/bypass, ignoriere"
-  xray_player_mined: "[XRay] %player% mined %ore% | Count: %count%/%threshold% | Total ores in window: %total% | Cleaned: %cleaned%"
-  xray_excluded_ore_mined: "[XRay] %player% mined excluded ore: %ore%"
-  xray_no_threshold: "[XRay] %player% - Kein Schwellenwert ueberschritten. Breakdown: %breakdown%"
-  xray_op_bypass: "[XRay] %player% ist OP und ops_bypass=true -> uebersprungen"
-  xray_op_checked: "[XRay] %player% ist OP aber ops_bypass=false -> wird geprueft!"
-  xray_bypass_permission: "[XRay] %player% hat bypass Permission -> uebersprungen"
-  xray_luckperms_whitelist: "[XRay] %player% ist in LuckPerms whitelist Gruppe -> uebersprungen"
   discord_disabled: "[Discord] Webhook deaktiviert (discord.enabled: false)"
   discord_url_empty: "[Discord] Webhook URL ist leer! Bitte in config.yml konfigurieren."
   discord_alert_disabled: "[Discord] Alert-Typ '%type%' ist deaktiviert"
   discord_sending: "[Discord] Sende Alert: %type%"
   discord_success: "[Discord] Alert erfolgreich gesendet!"
   discord_failed: "[Discord] Webhook fehlgeschlagen: %error%"
-  anticheat_enabled: "AntiCheat-Modul wurde aktiviert!"
-  anticheat_disabled: "AntiCheat-Modul ist DEAKTIVIERT (anticheat_enabled: false in config.yml)"
-  anticheat_reloaded: "AntiCheat-Einstellungen wurden neu geladen."
-  anticheat_disabled_on_reload: "AntiCheat-Modul wurde deaktiviert. (Vollstaendige Deaktivierung erfordert Server-Neustart)"
-
-# ===================
-# Movement Alerts
-# ===================
-movement:
-  disabled: "&c[Movement] AntiCheat-Modul ist deaktiviert!"
-  disabled_hint: "&7Aktiviere es in config.yml: &fanticheat_enabled: true"
-  alerts_cleared_all: "&aAlle Movement-Alerts wurden geloescht."
-  alerts_cleared_player: "&aAlerts fuer &f%player% &awurden geloescht."
-  no_suspicious: "&aKeine verdaechtigen Spieler gefunden."
-  list_header: "&e&l--- Movement Verdaechtige Spieler ---"
-  status_online: "&a[Online]"
-  status_offline: "&7[Offline]"
-  list_entry: "%status% &f%player% &7- &c%count% Alerts &7| &e/movealerts %player%"
-  list_hint_details: "&7Nutze &f/movealerts <spieler> &7fuer Details."
-  list_hint_clear: "&7Nutze &f/movealerts clear <spieler> &7zum Loeschen."
-  detail_header: "&e&l--- Movement Alerts: %player% ---"
-  detail_hint_clear: "&7Nutze &f/movealerts clear %player% &7zum Loeschen."
-  no_alerts_player: "&7Keine Alerts fuer diesen Spieler."
-  alert_entry: "&7[%time%] &e%type%: &f%details%"
-  alert_value: "  &7Wert: &f%.2f &7| Position: &f%location%"
-  db_cleared: "&aDB-Eintraege fuer &f%player% &ageloescht. &7(%count% Eintraege entfernt)"
-  db_clear_hint: "&7Um auch DB-Eintraege zu loeschen: &f/movealerts clear %player% --db"
-  admin_alert: "&e[AntiCheat] &cVerdaechtiger Spieler: &f%player% &e- Nutze &f/movealerts %player% &efuer Details"
-  admin_alert_detail: "&7  Typ: %type% | Wert: %.2f | Position: %location%"
-  type_speed: "Geschwindigkeit"
-  type_fly: "Fliegen"
-  type_teleport: "Teleport"
-  movement_type_walking: "Laufen"
-  movement_type_sprinting: "Sprinten"
-  movement_type_sneaking: "Schleichen"
-  movement_type_swimming: "Schwimmen"
-  movement_type_climbing: "Klettern"
-  movement_type_riding_horse: "Reiten (Pferd)"
-  movement_type_riding_pig: "Reiten (Schwein)"
-  movement_type_riding_strider: "Reiten (Schreiter)"
-  movement_type_boat: "Boot"
-  movement_type_minecart: "Lore"
-  movement_type_elytra: "Elytra"
-  movement_type_riptide: "Dreizack"
-  movement_type_creative_fly: "Kreativ-Flug"
-  movement_type_other_vehicle: "Anderes Fahrzeug"
-
 # ===================
 # Welt-Statistiken
 # ===================
@@ -378,7 +256,7 @@ silent:
   category_muted: "&a[Silent Mode] &f%category% &7Alerts stumm geschaltet."
   category_unmuted: "&a[Silent Mode] &f%category% &7Alerts wieder aktiviert."
   unknown_type: "&cUnbekannter Alert-Typ: %type%"
-  available_types: "&7Verfuegbare Typen: &fall, xray, movement, performance"
+  available_types: "&7Verfuegbare Typen: &fall, performance"
   list_header: "&e&l--- Alert-Einstellungen ---"
   receiving_all: "&a  Du erhaeltst alle Alerts."
   status_all_muted: "&c  Alle Alerts sind stumm. Nutze &f/perfsilent &czum Reaktivieren."
@@ -387,11 +265,90 @@ silent:
   list_hint: "&7Nutze &f/perfsilent <typ> &7um einzelne Typen umzuschalten."
   reset: "&a[Silent Mode] &fAlle Einstellungen zurueckgesetzt. Du erhaeltst wieder alle Alerts."
 
-# ===================
-# Sperrgebiete (Restricted Zones)
-# ===================
-restricted_zone:
-  alert_title: "&c&l[SPERRGEBIET-ALARM]"
-  alert_message: "&c%player% &7hat &e%ore% &7in Sperrgebiet &c%world% &7abgebaut!"
-  alert_location: "&7Koordinaten: &f[%x%, %y%, %z%]"
-  alert_admin: "&c&lSPERRGEBIET: &f%player% &7-> &e%ore% &7in &c%world% &7[%x%, %y%, %z%]"
+# Incident-Alerts (v3.1.0)
+alert:
+  incident_opened: "&c[Performance] &fProblem erkannt &8— &fStufe: %s &8| &fØ-Tick: &e%s ms &8| &fTPS: &e%s&r\n&7Wahrscheinlichste Ursache: &f%s"
+  incident_escalated: "&c[Performance] &fProblem verschärft sich: jetzt %s&r\n&7Wahrscheinlichste Ursache: &f%s"
+  incident_resolved: "&a[Performance] &fProblem behoben &8— &fDauer: &e%s&f, schlimmster Tick: &e%s ms&f, niedrigste TPS: &e%s"
+  no_clear_cause: "noch keine eindeutige Ursache ermittelt"
+  packet_flood: "Hohe Paket-Last: %d Pakete/Tick (Schwellenwert: %.0f)"
+
+# /perfincidents Command (v3.1.0)
+incident_cmd:
+  header: "&6&l=== Performance-Incidents (%count%) ==="
+  none: "&aKeine Performance-Incidents seit dem Server-Start aufgezeichnet."
+  entry: "&e#%number% %active%%color%&l%severity%&r &7- %start%, Dauer %duration%, schlimmster Tick %worst% ms, niedrigste TPS %tps% &8| &7%cause%"
+  active_tag: "&c[AKTIV]"
+  hint_detail: "&7Nutze &f/perfincidents <Nummer> &7fuer Details."
+  hint_clear: "&7Nutze &f/perfincidents clear &7um den Verlauf zu loeschen."
+  invalid_number: "&cUngueltige Nummer. Nutze 1-%max% oder 'clear'."
+  cleared: "&aIncident-Verlauf geloescht."
+  detail_header: "&6&l=== Incident #%number% ==="
+  detail_status: "&7Status: %status%"
+  status_active: "&c&lAKTIV"
+  status_resolved: "&abehoben"
+  detail_time: "&7Start: &f%start% &7| Dauer: &f%duration%"
+  detail_peak: "&7Hoechste Stufe: %color%&l%severity%&r &7(Score &f%score%&7/100)"
+  detail_metrics: "&7Schlimmster Tick: &f%worst% ms &7| Schlechtester Schnitt: &f%avgworst% ms &7| Niedrigste TPS: &f%tps%"
+  detail_triggers: "&7&lAusgeloest durch:"
+  trigger_entry: "&7 - &f%reason%"
+  findings_header: "&7&lBefunde (beste Zuordnung zuerst):"
+  no_findings: "&7Keine Befunde fuer diesen Incident aufgezeichnet."
+  finding_entry: "%color%> %title% %confidence%"
+  confidence_measured: "&8[GEMESSEN]"
+  confidence_heuristic: "&8[HEURISTIK]"
+  finding_detail: "  %detail%"
+  finding_recommendation: "  &7Empfehlung: &f%recommendation%"
+  finding_teleport: "  &e[Klicken zum Teleport nach %world% %x%, %z%]"
+  finding_location: "  &7Position: &f%world% %x%, %z%"
+
+# Ursachen-Befunde (v3.1.0)
+finding:
+  gc:
+    title: "Garbage-Collection-Druck"
+    detail: "&7GC-Zeit: &f%d ms&7 in den letzten 60s, längste Pause ~&f%.0f ms&7 (%d Sammlungen)"
+    recommendation: "Heap-Größe (-Xmx) und GC-Flags prüfen (Aikar-Flags / ZGC); Allokationen mit spark profilen."
+  memory:
+    title: "Echter Speicherdruck (Old-Gen nach GC voll)"
+    detail: "&7Old Generation auch nach der Garbage Collection bei &f%.0f%%&7 (Heap-Maximum: %d MB)"
+    recommendation: "Heap vergrößern oder den Speicherfresser finden: spark heapsummary, verdächtige Plugins prüfen."
+  plugin:
+    title: "Plugin '%s' verbraucht messbar Tickzeit"
+    detail: "&7Gemessen: &f%.1f ms/s&7 (%.1f%% eines Threads), teuerstes Event: &f%s&7 (%.1f ms/s)"
+    recommendation: "Konfiguration von '%s' prüfen, Update einspielen oder mit spark den heißen Pfad eingrenzen."
+  hotchunk:
+    title: "Hochaktiver Chunk in %s bei %d, %d"
+    detail: "&7Dominant: &f%s&7 — Hopper: &f%.1f/s&7, Redstone: &f%.1f/s&7, Spawns: &f%.1f/s"
+    recommendation: "Bereich prüfen (Welt %s, um x=%d z=%d): Hopper-Uhren, Item-Farmen und Dauer-Redstone sind typische Verursacher."
+    kind:
+      hopper: "Hopper-Item-Verkehr"
+      redstone: "Redstone-/Piston-Aktivität"
+      spawns: "Mob-Spawning"
+  chunkgen:
+    title: "Starke Chunk-Generierung"
+    detail: "&7Neue Chunks werden mit &f%.1f/s&7 generiert (Erkundung oder Weltrand-Erweiterung)"
+    recommendation: "Welt vorgenerieren (z. B. mit Chunky) oder Erkundung begrenzen."
+  churn:
+    title: "Chunk-Dauerladen in %s um %d, %d"
+    detail: "&7Dieser Chunk wurde kürzlich &f%d&7-mal neu geladen"
+    recommendation: "Nach Portalen, Chunk-Loadern oder Farmen suchen, die den Bereich immer wieder laden."
+  entities:
+    title: "Entity-Hotspot in %s bei %d, %d"
+    detail: "&7%d Entities in einem Chunk, überwiegend &f%s&7 (%d)"
+    recommendation: "Farm/Ansammlung ausdünnen; ggf. Entity-Cramming-Limits oder Farm-Redesign."
+  unknown:
+    title: "Keine eindeutige Einzelursache gefunden"
+    detail: "&7Die Lag-Quelle liegt nicht bei den instrumentierten Ursachen (GC, Plugins, Chunk-Aktivität, Entities)."
+    recommendation: "'spark profiler' für ein Tiefen-Sampling starten; die Incident-Daten oben grenzen das Zeitfenster ein."
+
+# Begründungen der Severity-Bewertung (v3.1.0)
+severity:
+  reason:
+    emergency: "Server läuft auf %.1f TPS (Ø-Tick %.1f ms)"
+    critical: "20 TPS nicht mehr haltbar: Ø-Tick %.1f ms, TPS %.1f"
+    warning: "Spürbare Ruckler: p95-Tick %.1f ms, Ø %.1f ms"
+    memory: "Old-Gen nach GC bei %.0f%% – echter Speicherdruck"
+    gc: "GC-Last: %d ms in 60 s, längste Pause ~%.0f ms"
+    baseline_double: "Ø-Tick %.1f ms – mehr als doppelt so hoch wie normal (%.1f ms)"
+    baseline_elevated: "Ø-Tick %.1f ms – deutlich über dem Normalwert (%.1f ms)"
+    spike: "Einzelner Tick-Spike von %.0f ms"

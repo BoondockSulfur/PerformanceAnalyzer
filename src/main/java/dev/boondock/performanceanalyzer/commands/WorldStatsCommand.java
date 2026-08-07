@@ -61,8 +61,10 @@ public class WorldStatsCommand implements CommandExecutor, TabCompleter {
     }
 
     private void showOverview(CommandSender sender) {
-        ServerEntityStats serverStats = statsManager.getServerStats();
+        // One scan: the server summary is aggregated from the per-world
+        // results instead of re-scanning every world's tile entities.
         List<WorldStats> worldStats = statsManager.getAllWorldStats();
+        ServerEntityStats serverStats = statsManager.aggregate(worldStats);
 
         sender.sendMessage(lang().get("worldstats.header"));
         sender.sendMessage(lang().get("worldstats.server_summary",

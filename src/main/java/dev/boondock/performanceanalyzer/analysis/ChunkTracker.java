@@ -1,5 +1,6 @@
 package dev.boondock.performanceanalyzer.analysis;
 
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.World;
@@ -28,9 +29,6 @@ public class ChunkTracker implements Listener {
     // Track per-world chunk statistics
     private final Map<String, WorldChunkStats> worldStats = new ConcurrentHashMap<>();
 
-    // Recent chunk loads for timing analysis
-    private final Map<ChunkKey, Long> pendingLoads = new ConcurrentHashMap<>();
-
     // Global counters
     private final AtomicLong totalLoads = new AtomicLong(0);
     private final AtomicLong totalUnloads = new AtomicLong(0);
@@ -43,10 +41,9 @@ public class ChunkTracker implements Listener {
     public ChunkTracker(Plugin plugin) {
         this.plugin = plugin;
 
-        // Reset per-minute counter every minute
-        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            loadsThisMinute.set(0);
-        }, 1200L, 1200L);
+        // Reset per-minute counter every minute (counters are concurrent,
+        // so this can run off the tick threads)
+        Scheduling.runAsyncRepeating(plugin, () -> loadsThisMinute.set(0), 60_000L, 60_000L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -201,8 +198,6 @@ public class ChunkTracker implements Listener {
     }
 
     // Helper classes
-
-    private record ChunkKey(String world, int x, int z) {}
 
     private static class ChunkLoadStats {
         final String worldName;

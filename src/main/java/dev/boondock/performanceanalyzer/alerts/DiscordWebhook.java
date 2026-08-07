@@ -81,13 +81,13 @@ public class DiscordWebhook {
     /**
      * Send an alert to Discord webhook.
      * Alerts are queued and sent with rate-limiting to prevent Discord API abuse.
+     * Type filtering (discord.alert_types.*) happens in {@link AlertManager}.
      *
-     * @param type Alert type
-     * @param title Alert title
-     * @param description Alert description
+     * @param severity Severity level — determines the embed color and title
+     * @param description Alert description (color codes already stripped)
      * @param value Numeric value associated with alert
      */
-    public void sendAlert(AlertManager.AlertType type, String title, String description, double value) {
+    public void sendAlert(dev.boondock.performanceanalyzer.analysis.Severity severity, String description, double value) {
         if (!config.discordEnabled()) {
             plugin.getLogger().fine("[Discord] Webhook deaktiviert (discord.enabled: false)");
             return;
@@ -105,15 +105,10 @@ public class DiscordWebhook {
             return;
         }
 
-        // Check if this alert type should be sent to Discord
-        String typeKey = type.name().toLowerCase();
-        if (!config.discordAlertType(typeKey)) {
-            plugin.getLogger().fine("[Discord] Alert type " + typeKey + " is disabled");
-            return;
-        }
+        String title = "Performance: " + severity.name();
 
         // Build Discord embed JSON
-        String json = buildEmbedJson(type, title, description, value);
+        String json = buildEmbedJson(severity, title, description, value);
 
         // Queue the request for rate-limited sending
         if (requestQueue.size() >= Constants.DISCORD_MAX_QUEUE_SIZE) {
@@ -141,7 +136,7 @@ public class DiscordWebhook {
         }
 
         processorRunning = true;
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, this::processQueue);
+        dev.boondock.performanceanalyzer.platform.Scheduling.runAsync(plugin, this::processQueue);
     }
 
     /**
@@ -191,9 +186,9 @@ public class DiscordWebhook {
         }
     }
 
-    private String buildEmbedJson(AlertManager.AlertType type, String title, String description, double value) {
+    private String buildEmbedJson(dev.boondock.performanceanalyzer.analysis.Severity severity, String title, String description, double value) {
         // Color based on severity
-        int color = getColorForType(type);
+        int color = getColorForSeverity(severity);
 
         // Build JSON manually (avoiding external JSON libraries for simplicity)
         String timestamp = Instant.now().toString();
@@ -213,12 +208,13 @@ public class DiscordWebhook {
             """, escapeJson(title), escapeJson(description), value, color, timestamp);
     }
 
-    private int getColorForType(AlertManager.AlertType type) {
-        return switch (type) {
-            case HIGH_MSPT, TPS_DROP -> 0xFF5555; // Red
-            case HIGH_HEAP -> 0xFFAA00; // Orange
-            case PACKET_FLOOD -> 0xAA00AA; // Purple
-            case ANTICHEAT -> 0xFFFF55; // Yellow
+    private int getColorForSeverity(dev.boondock.performanceanalyzer.analysis.Severity severity) {
+        return switch (severity) {
+            case OK -> 0x55FF55;        // Green — resolved
+            case NOTICE -> 0xFFFF55;    // Yellow
+            case WARNING -> 0xFFAA00;   // Orange
+            case CRITICAL -> 0xFF5555;  // Red
+            case EMERGENCY -> 0xAA0000; // Dark red
         };
     }
 

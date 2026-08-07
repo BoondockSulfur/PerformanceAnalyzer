@@ -1,7 +1,6 @@
 package dev.boondock.performanceanalyzer.util;
 
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
-import dev.boondock.performanceanalyzer.metrics.TickSampler;
 
 import java.util.List;
 
@@ -29,13 +28,15 @@ public class AsciiSparkline {
 
     /**
      * Gets real historical MSPT data from the database.
-     * Falls back to current live data if DB has no data yet.
+     * Falls back to a flat line at {@code fallbackMspt} if the DB has no data yet.
+     * Must be called off the tick threads (performs blocking DB queries).
+     *
      * @param db DatabaseManager instance
-     * @param sampler TickSampler for fallback live data
+     * @param fallbackMspt Current live MSPT average used when no DB data exists
      * @param minutesBack How many minutes of history to show
      * @return Array of MSPT values for sparkline visualization
      */
-    public static double[] recentMsptWindow(DatabaseManager db, TickSampler sampler, int minutesBack) {
+    public static double[] recentMsptWindow(DatabaseManager db, double fallbackMspt, int minutesBack) {
         List<Double> dbValues = db.getRecentMspt(minutesBack);
 
         // If we have enough DB data, use it
@@ -53,10 +54,9 @@ public class AsciiSparkline {
         }
 
         // Fallback: No DB data yet, show current live average as flat line
-        double currentAvg = sampler.msptAvg();
         double[] fallback = new double[20];
         for (int i = 0; i < fallback.length; i++) {
-            fallback[i] = currentAvg;
+            fallback[i] = fallbackMspt;
         }
         return fallback;
     }

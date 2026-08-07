@@ -1,5 +1,6 @@
 package dev.boondock.performanceanalyzer.config;
 
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.concurrent.CompletableFuture;
@@ -9,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Asynchronous configuration saver to prevent main thread blocking.
  * Ensures config changes don't freeze the server.
  *
- * @since 3.0.0
+ * @since 3.1.0
  */
 public class AsyncConfigSaver {
 
@@ -42,8 +43,8 @@ public class AsyncConfigSaver {
 
         CompletableFuture<Void> future = new CompletableFuture<>();
 
-        // Schedule save on main thread (Bukkit's saveConfig is NOT thread-safe!)
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        // Save off the tick threads (region-scheduler async; Folia-safe).
+        Scheduling.runAsync(plugin, () -> {
             try {
                 // Reset pending flag before saving — any new request after this
                 // point will set it again and trigger a follow-up save
@@ -53,10 +54,8 @@ public class AsyncConfigSaver {
 
                 // Check if another save was requested during this save
                 if (pendingSave.compareAndSet(true, false)) {
-                    // Schedule follow-up save
-                    plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                        plugin.saveConfig();
-                    }, 20L); // 1 second delay
+                    // Schedule follow-up save (1 second delay)
+                    Scheduling.runAsyncDelayed(plugin, plugin::saveConfig, 1_000L);
                 }
 
                 future.complete(null);

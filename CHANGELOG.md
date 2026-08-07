@@ -7,6 +7,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.0] - 2026-08-07
+
+Complete rewrite. PerformanceAnalyzer is now a pure performance plugin with an
+honest measurement core, an incident-based root-cause engine and a real REST
+API. The AntiCheat module moved into its own plugin, **BS-AntiCheat**.
+
+### Changed
+- **MSPT now means real tick work time (BREAKING for dashboards).** v2.x
+  measured the *tick interval* — the time between scheduler runs, which is
+  pinned to ~50 ms on any healthy server. That was the root cause of the
+  permanent false alerts. v3 measures the actual per-tick work duration via
+  Paper's `ServerTickEndEvent`: a healthy server now shows single-digit MSPT,
+  and 50 ms is the deadline at which 20 TPS can no longer be held. Exported
+  MSPT values will drop dramatically after upgrading — the new values are the
+  correct ones.
+- **Statistics over fixed time windows** (10 s / 60 s) with p50/p95/p99/max
+  percentiles instead of fixed tick counts; a single spike is caught, not
+  averaged away. TPS is counted exactly on Paper and estimated from the worst
+  region on Folia.
+- **Fixed alert thresholds replaced by a documented severity model**
+  (`analysis/SeverityModel.java`): OK/NOTICE/WARNING/CRITICAL/EMERGENCY plus
+  a transparent 0–100 score (45 pts sustained load vs. the 50 ms deadline,
+  30 pts p95 tail latency, 25 pts GC pressure). `thresholds.mspt`,
+  `thresholds.tps_drop` and `thresholds.heap_usage` are gone; only
+  `thresholds.spike_tick_ms` and `thresholds.packet_flood_per_tick` remain.
+- **One-shot "performance drops" became incidents** with an
+  open → escalate → resolve lifecycle, duration tracking and a resolved
+  notification. `/perfincidents` (aliases `pi`, `perfdrops`, `incidents`)
+  replaces `/perfdrops`.
+- **Root-cause attribution is ordered and confidence-labeled**: findings are
+  marked MEASURED or HEURISTIC and checked GC → plugin listener timings →
+  hot chunks → chunk generation/churn → entity hotspots, so a GC-caused
+  spike is never blamed on redstone.
+- **Plugin analysis measures real cost**: `timing/ListenerTimings.java` wraps
+  other plugins' event handlers and accumulates actual milliseconds per
+  plugin, replacing the `listeners*2 + tasks*3` registration-count risk score
+  that reliably blamed the wrong plugin.
+- **Chunk analysis counts activity, not existence** (`ActivityCounters`):
+  per-chunk redstone firings, piston movements, hopper item moves, spawns and
+  chunk loads/gens per second in rolling 10 s windows replace the static
+  redstone/block estimator (idle contraptions cost nothing; a 10 Hz clock
+  costs real time).
+- **Detection decoupled from database logging**: the evaluation loop runs
+  every second regardless of DB state (v2 detection ran once per minute as a
+  side effect of DB logging and stopped when the DB was down).
+- `/perfhistory` now queries asynchronously and clamps its range; its
+  permission (`performance.history`) and `performance.gui` default to op.
+- Alerts are severity-based with escalation and a resolved message,
+  dispatched thread-safely to players with `performance.alerts`; Discord
+  embeds are colored by severity and use new `discord.alert_types` keys:
+  `incident_opened`, `incident_escalated`, `incident_resolved`,
+  `packet_flood`, `performance`.
+- Config migrated automatically to `config_version: 7` — obsolete keys are
+  deleted, new keys added with safe defaults.
+
+### Added
+- **Adaptive baseline** (`analysis/Baseline.java`): EWMA over ~10 minutes of
+  healthy samples (120-sample warmup); the severity model alerts on deviation
+  from the server's *own* normal in addition to the hard 50 ms deadline. The
+  baseline is only fed while the server is healthy, so an ongoing incident
+  cannot poison it.
+- **GC monitoring** (`metrics/GcSampler.java`): GC pause-time deltas, old-gen
+  occupancy *after* the last collection (the only honest memory-pressure
+  signal — 90 % live heap right before a young GC is normal) and metaspace.
+- **Single-tick spike trigger**: one tick above `thresholds.spike_tick_ms`
+  (default 100 ms) starts incident analysis immediately, rate-limited.
+- **Real REST API** (`api/MetricsAPI.java`): `GET /api/health` (no auth),
+  `/api/metrics`, `/api/incidents`, `/api/worlds` and Grafana-ready
+  `/api/metrics/prometheus` (text exposition v0.0.4). Constant-time
+  `Authorization: Bearer` check, `api.bind` defaults to `127.0.0.1`, and the
+  server refuses to start while `api.key` is empty or `"changeme"`.
+- **Folia support**: `folia-supported: true`; all tasks go through the
+  region-aware schedulers (`platform/Scheduling.java`). Tick samples come
+  from every region thread; TPS is a worst-region estimate on Folia.
+- Fallback file logging when the database is unavailable
+  (`database.fallback_file_logging`, `database.fallback_log_file`).
+- JUnit 5 unit tests for the pure logic (Baseline, SeverityModel, TickStats)
+  wired into the Maven build via Surefire.
+
+### Fixed
+- **The analyzer no longer freezes the server during lag**: the v2 analyzer
+  took chunk snapshots and iterated worlds on the main thread mid-incident,
+  blocking for seconds. The v3 engine attributes causes exclusively from
+  already-collected data — no chunk snapshots, no main-thread blocking, no
+  Bukkit access from HTTP or monitor threads.
+- **Fixes from live verification on Paper 26.1.2, Paper 1.21.4 and Folia 26.2
+  (2026-08-05 … 2026-08-07):**
+  - Plugin crashed on enable when ProtocolLib was absent
+    (`NoClassDefFoundError` — the presence check now runs before the first
+    hook-class reference).
+  - Folia fires no `ServerTickEndEvent`; the interval fallback recorded the
+    ~50 ms tick *period* as work time and produced a permanent false WARNING.
+    Healthy fallback samples now use a nominal value and `/perfstatus` labels
+    the estimate mode.
+  - Scheduled restarts raised a bogus CRITICAL/EMERGENCY on every shutdown
+    (counted TPS collapses while worlds save) — evaluation is now suspended
+    once `Bukkit.isStopping()` and during the new startup grace period
+    (`performance.startup_grace_seconds`, default 60 s; metrics still run).
+  - The baseline learned during NOTICE, letting sustained load ratchet the
+    "normal" value upward until active incidents self-resolved; it now learns
+    only while the severity is OK.
+  - Entity-hotspot findings multiplied chunk coordinates by 16 twice
+    (reported "-256, 0" instead of "-16, 0").
+  - TPS windows are clamped to the sampler uptime (the first minute after
+    boot divided by a window that had not filled yet and reported bogus low
+    60 s TPS).
+  - Incident open/escalate/resolve messages are always written to the console
+    (WARNING-level incidents were chat-only and invisible on empty servers).
+  - The shutdown config save runs only when the plugin itself changed the
+    config — the unconditional save wiped `config.yml` edits admins made
+    while the server was running.
+  - Obsolete-key cleanup is now version-independent and idempotent: configs
+    stamped with a matching `config_version` by older builds kept dead
+    sections (the `anticheat:` block survived a 6→7 migration), and the
+    removal list used a wrong key name
+    (`thresholds.heap_usage` vs. `heap_usage_percent`).
+  - `/perfhistory` results are additionally written to the server log for
+    console/RCON senders (async replies never reach the RCON response).
+  - Severity assessment reasons are localized (were hardcoded German).
+- GUI refresh-task leak fixed; all GUIs now share a single registered
+  listener (`GuiManager`) instead of per-GUI listeners and throwaway
+  instances. GUI texts fully localized (en/de).
+- Permanent false "high MSPT" alerts on idle servers (see the measurement
+  change above).
+- CI artifact upload glob matched nothing (`PerformanceAnalyzer-*.jar` vs.
+  actual `performance-analyzer-*.jar`).
+
+### Removed
+- **AntiCheat module** — now the separate plugin **BS-AntiCheat**. Gone with
+  it: `/acwhitelist`, `/xrayalerts`, `/xrayores`, `/movealerts`, the
+  `performance.anticheat.*` permissions and the `anticheat.*` config section
+  (deleted by migration).
+- **Auto Entity Cleaner** (`entity_cleaner.*` config section).
+- Static redstone estimator, `PerformanceDropAnalyzer` and the
+  plugin "risk score" (replaced as described above).
+- Fixed `thresholds.mspt` / `thresholds.tps_drop` / `thresholds.heap_usage`
+  and the `messages.*` config section.
+- `discord.alert_types.anticheat` (deleted by migration); the old
+  `high_mspt`/`tps_drop`/`high_heap` Discord alert keys are no longer
+  consulted (replaced by the incident-based keys).
+- `docs/grafana-dashboard.json` — use the Prometheus endpoint with your own
+  Grafana dashboards instead.
+
+---
+
+## [3.0.0] - 2026-06-17
+
+Published on Modrinth (Paper/Purpur/Spigot, MC 1.21–1.21.3). Contained a
+first portion of the v3 changes (REST API scaffolding, `config_version: 6`).
+The source of this release was never committed to the repository — this
+entry exists for the record; the full rework shipped as 3.1.0.
+
+---
+
 ## [2.3.4] - 2026-05-07
 
 ### Fixed

@@ -1,211 +1,173 @@
 package dev.boondock.performanceanalyzer.gui;
 
-import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.PlayerActivityTracker;
-import dev.boondock.performanceanalyzer.analysis.PluginTimingsAnalyzer;
-import dev.boondock.performanceanalyzer.config.PluginConfig;
+import dev.boondock.performanceanalyzer.timing.ListenerTimings;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * GUI page showing lag source analysis.
- * Displays top active players and suspect plugins.
+ * Lag analysis page: measured per-plugin listener load from
+ * {@link ListenerTimings} plus the most active players (neutral wording — a
+ * busy player is a data point, not a suspect).
+ *
+ * <p>Slot layout is non-overlapping (v2 wrote the plugin list starting at 23
+ * and overwrote the 5th player entry): players occupy 19-23, plugins 28-32.</p>
  */
-public class LagAnalysisGUI implements Listener, InventoryHolder {
+public final class LagAnalysisGUI extends AbstractGui {
 
-    private final PerformanceAnalyzer plugin;
-    private final PluginConfig config;
-    private final Player player;
+    private static final int SLOT_PLAYERS_HEADER = 10;
+    private static final int SLOT_PLUGINS_HEADER = 14;
+    private static final int PLAYERS_START = 19;   // 19..23
+    private static final int PLUGINS_START = 28;   // 28..32
+    private static final int MAX_ENTRIES = 5;
+    private static final int SLOT_REFRESH = 40;
+    private static final int SLOT_CLEAR = 41;
+    private static final int SLOT_BACK = 49;
+
     private final Inventory inventory;
-    private final PlayerActivityTracker activityTracker;
-    private final PluginTimingsAnalyzer pluginAnalyzer;
 
-    public LagAnalysisGUI(PerformanceAnalyzer plugin, PluginConfig config, Player player,
-                         PlayerActivityTracker activityTracker, PluginTimingsAnalyzer pluginAnalyzer) {
-        this.plugin = plugin;
-        this.config = config;
-        this.player = player;
-        this.activityTracker = activityTracker;
-        this.pluginAnalyzer = pluginAnalyzer;
-        this.inventory = Bukkit.createInventory(this, 54, color("&6Lag-Ursachen Analyse"));
-
-        setupGUI();
+    LagAnalysisGUI(GuiManager manager) {
+        super(manager);
+        this.inventory = Bukkit.createInventory(this, 54, lang.get("gui_lag.title"));
+        build();
     }
 
-    private void setupGUI() {
-        // Top Active Players
-        inventory.setItem(10, createItem(Material.PLAYER_HEAD,
-            "&e&lAktivste Spieler",
-            "&7Zeigt die Top 5 aktivsten Spieler",
-            "&7(Block-Interaktionen, Bewegungen, etc.)"
-        ));
+    private void build() {
+        inventory.clear();
 
-        // Populate player list
-        if (config.lagAnalysisPlayerTracking() && activityTracker != null) {
-            List<PlayerActivityTracker.PlayerActivitySnapshot> topPlayers = activityTracker.getTopActivePlayers(5);
-            int slot = 19;
-            for (PlayerActivityTracker.PlayerActivitySnapshot snap : topPlayers) {
-                if (slot > 23) break;
-                inventory.setItem(slot++, createPlayerItem(snap));
-            }
-            if (topPlayers.isEmpty()) {
-                inventory.setItem(19, createItem(Material.GRAY_DYE, "&7Keine Daten", "&7Warte auf Spieleraktivität..."));
-            }
-        } else {
-            inventory.setItem(19, createItem(Material.BARRIER, "&cDeaktiviert",
-                "&7Player-Tracking ist deaktiviert",
-                "&7Aktiviere in config.yml:",
-                "&elag_analysis.player_tracking: true"));
+        buildPlayerSection();
+        buildPluginSection();
+
+        inventory.setItem(SLOT_REFRESH, item(Material.LIME_DYE,
+                lang.get("gui.refresh"), lang.get("gui.refresh_lore")));
+        inventory.setItem(SLOT_CLEAR, item(Material.RED_DYE,
+                lang.get("gui_lag.clear"), lang.get("gui_lag.clear_lore")));
+        inventory.setItem(SLOT_BACK, item(Material.ARROW,
+                lang.get("gui.back"), lang.get("gui.back_lore")));
+
+        fillEmpty(inventory);
+    }
+
+    private void buildPlayerSection() {
+        inventory.setItem(SLOT_PLAYERS_HEADER, item(Material.PLAYER_HEAD,
+                lang.get("gui_lag.players_header"),
+                lang.get("gui_lag.players_header_lore1"),
+                lang.get("gui_lag.players_header_lore2")));
+
+        PlayerActivityTracker tracker = manager.activityTracker();
+        if (!manager.config().lagAnalysisPlayerTracking() || tracker == null) {
+            inventory.setItem(PLAYERS_START, item(Material.BARRIER,
+                    lang.get("gui_lag.players_disabled"),
+                    lang.get("gui_lag.players_disabled_lore1"),
+                    lang.get("gui_lag.players_disabled_lore2")));
+            return;
         }
 
-        // Top Suspect Plugins
-        inventory.setItem(14, createItem(Material.REDSTONE,
-            "&c&lVerdächtige Plugins",
-            "&7Zeigt Plugins mit vielen Listenern",
-            "&7und hoher Aktivität"
-        ));
-
-        // Populate plugin list
-        if (config.lagAnalysisPluginAnalysis() && pluginAnalyzer != null) {
-            List<PluginTimingsAnalyzer.PluginPerformanceSnapshot> topPlugins = pluginAnalyzer.getTopLagSuspects(5);
-            int slot = 23;
-            for (PluginTimingsAnalyzer.PluginPerformanceSnapshot snap : topPlugins) {
-                if (slot > 27) break;
-                inventory.setItem(slot++, createPluginItem(snap));
-            }
-        } else {
-            inventory.setItem(23, createItem(Material.BARRIER, "&cDeaktiviert", "&7Plugin-Analyse ist deaktiviert"));
+        List<PlayerActivityTracker.PlayerActivitySnapshot> topPlayers =
+                tracker.getTopActivePlayers(MAX_ENTRIES);
+        if (topPlayers.isEmpty()) {
+            inventory.setItem(PLAYERS_START, item(Material.GRAY_DYE,
+                    lang.get("gui_lag.no_player_data"),
+                    lang.get("gui_lag.no_player_data_lore")));
+            return;
         }
-
-        // Refresh Button
-        inventory.setItem(40, createItem(Material.LIME_DYE,
-            "&a&lAktualisieren",
-            "&7Daten neu laden"
-        ));
-
-        // Clear Data Button
-        inventory.setItem(41, createItem(Material.RED_DYE,
-            "&c&lDaten Zurücksetzen",
-            "&7Löscht alle Aktivitätsdaten",
-            "&eNützlich nach Untersuchung"
-        ));
-
-        // Back Button
-        inventory.setItem(49, createItem(Material.ARROW, "&7Zurück", "&eZum Hauptmenü"));
-
-        // Fill empty slots
-        ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
-        ItemMeta fillerMeta = filler.getItemMeta();
-        if (fillerMeta != null) {
-            fillerMeta.setDisplayName(" ");
-            filler.setItemMeta(fillerMeta);
-        }
-
-        for (int i = 0; i < inventory.getSize(); i++) {
-            if (inventory.getItem(i) == null) {
-                inventory.setItem(i, filler);
-            }
+        int slot = PLAYERS_START;
+        for (PlayerActivityTracker.PlayerActivitySnapshot snap : topPlayers) {
+            if (slot >= PLAYERS_START + MAX_ENTRIES) break;
+            inventory.setItem(slot++, playerItem(snap));
         }
     }
 
-    private ItemStack createPlayerItem(PlayerActivityTracker.PlayerActivitySnapshot snap) {
+    private void buildPluginSection() {
+        inventory.setItem(SLOT_PLUGINS_HEADER, item(Material.REDSTONE,
+                lang.get("gui_lag.plugins_header"),
+                lang.get("gui_lag.plugins_header_lore1"),
+                lang.get("gui_lag.plugins_header_lore2")));
+
+        ListenerTimings timings = manager.timings();
+        if (timings == null || !timings.isActive()) {
+            inventory.setItem(PLUGINS_START, item(Material.BARRIER,
+                    lang.get("gui_lag.timings_disabled"),
+                    lang.get("gui_lag.timings_disabled_lore1"),
+                    lang.get("gui_lag.timings_disabled_lore2")));
+            return;
+        }
+
+        List<ListenerTimings.PluginLoad> loads = timings.loads();
+        if (loads.isEmpty()) {
+            inventory.setItem(PLUGINS_START, item(Material.GRAY_DYE,
+                    lang.get("gui_lag.no_plugin_data"),
+                    lang.get("gui_lag.no_plugin_data_lore")));
+            return;
+        }
+        int slot = PLUGINS_START;
+        for (ListenerTimings.PluginLoad load : loads) {
+            if (slot >= PLUGINS_START + MAX_ENTRIES) break;
+            inventory.setItem(slot++, pluginItem(load));
+        }
+    }
+
+    private org.bukkit.inventory.ItemStack playerItem(PlayerActivityTracker.PlayerActivitySnapshot snap) {
         List<String> lore = new ArrayList<>();
-        lore.add(color("&7"));
-        lore.add(color("&7Block Breaks: &f" + snap.blockBreaks));
-        lore.add(color("&7Block Places: &f" + snap.blockPlaces));
-        lore.add(color("&7Movements: &f" + snap.movements));
-        lore.add(color("&7Commands: &f" + snap.commands));
-        lore.add(color("&7Interactions: &f" + snap.interactions));
-        lore.add(color("&7Entity Hits: &f" + snap.entityInteractions));
-        lore.add(color("&7"));
-        lore.add(color("&6Activity Score: &e" + snap.getTotalActivity()));
-
-        return createItemWithLore(Material.PLAYER_HEAD, "&e" + snap.playerName, lore);
+        lore.add(lang.get("gui_lag.player_blocks",
+                "%breaks%", String.valueOf(snap.blockBreaks),
+                "%places%", String.valueOf(snap.blockPlaces)));
+        lore.add(lang.get("gui_lag.player_moves", "%moves%", String.valueOf(snap.movements)));
+        lore.add(lang.get("gui_lag.player_commands", "%commands%", String.valueOf(snap.commands)));
+        lore.add(lang.get("gui_lag.player_interactions",
+                "%interactions%", String.valueOf(snap.interactions + snap.entityInteractions)));
+        lore.add(lang.get("gui_lag.player_score", "%score%", String.valueOf(snap.getTotalActivity())));
+        return item(Material.PLAYER_HEAD, "§e" + snap.playerName, lore);
     }
 
-    private ItemStack createPluginItem(PluginTimingsAnalyzer.PluginPerformanceSnapshot snap) {
+    private org.bukkit.inventory.ItemStack pluginItem(ListenerTimings.PluginLoad load) {
         List<String> lore = new ArrayList<>();
-        lore.add(color("&7"));
-        lore.add(color("&7Version: &f" + snap.version));
-        lore.add(color("&7Event Listeners: &f" + snap.eventListeners));
-        lore.add(color("&7Scheduled Tasks: &f" + snap.scheduledTasks));
-        lore.add(color("&7"));
-
-        String riskColor = snap.getRiskScore() > 100 ? "&c" : (snap.getRiskScore() > 50 ? "&e" : "&a");
-        lore.add(color("&6Risk Score: " + riskColor + snap.getRiskScore()));
-
-        if (snap.isHeavyPlugin) {
-            lore.add(color("&c&l⚠ HEAVY PLUGIN"));
-        }
-
-        Material icon = snap.isHeavyPlugin ? Material.REDSTONE_BLOCK : Material.PAPER;
-        return createItemWithLore(icon, "&6" + snap.pluginName, lore);
+        lore.add(lang.get("gui_lag.plugin_load",
+                "%ms%", String.format("%.1f", load.msPerSec()),
+                "%percent%", String.format("%.1f", load.percentOfThreadBudget())));
+        lore.add(lang.get("gui_lag.plugin_calls", "%calls%", String.valueOf(load.callsPerSec())));
+        lore.add(lang.get("gui_lag.plugin_top_event",
+                "%event%", shortEventName(load.topEvent()),
+                "%ms%", String.format("%.1f", load.topEventMsPerSec())));
+        Material icon = load.msPerSec() >= 100 ? Material.REDSTONE_BLOCK
+                : load.msPerSec() >= 50 ? Material.REDSTONE : Material.PAPER;
+        return item(icon, "§6" + load.pluginName(), lore);
     }
 
-    public void open() {
-        player.openInventory(inventory);
+    private static String shortEventName(String event) {
+        if (event == null) return "-";
+        int idx = event.lastIndexOf('.');
+        return idx >= 0 ? event.substring(idx + 1) : event;
     }
 
-    @EventHandler
-    public void onInventoryClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof LagAnalysisGUI gui)) return;
-        event.setCancelled(true);
+    @Override
+    public void refresh() {
+        build();
+    }
 
-        Player p = (Player) event.getWhoClicked();
-        int slot = event.getSlot();
-
+    @Override
+    public void handleClick(Player player, int slot) {
         switch (slot) {
-            case 40 -> { // Refresh
-                p.closeInventory();
-                new LagAnalysisGUI(gui.plugin, gui.config, p, gui.activityTracker, gui.pluginAnalyzer).open();
-                p.sendMessage(color("&aDaten aktualisiert!"));
+            case SLOT_REFRESH -> {
+                build();
+                player.sendMessage(lang.get("gui.data_refreshed"));
             }
-            case 41 -> { // Clear
-                if (gui.activityTracker != null) {
-                    gui.activityTracker.clearActivity();
-                    p.sendMessage(color("&aAktivitätsdaten zurückgesetzt!"));
-                    p.closeInventory();
-                    new LagAnalysisGUI(gui.plugin, gui.config, p, gui.activityTracker, gui.pluginAnalyzer).open();
+            case SLOT_CLEAR -> {
+                PlayerActivityTracker tracker = manager.activityTracker();
+                if (tracker != null) {
+                    tracker.clearActivity();
                 }
+                build();
+                player.sendMessage(lang.get("gui_lag.cleared"));
             }
-            case 49 -> // Back
-                new PerformanceGUI(gui.plugin, gui.config, gui.plugin.tickSampler(), gui.plugin.memorySampler()).open(p);
+            case SLOT_BACK -> manager.openLater(player, manager::openMain);
+            default -> { }
         }
-    }
-
-    private ItemStack createItem(Material material, String name, String... lore) {
-        List<String> loreList = new ArrayList<>();
-        for (String line : lore) {
-            loreList.add(color(line));
-        }
-        return createItemWithLore(material, name, loreList);
-    }
-
-    private ItemStack createItemWithLore(Material mat, String name, List<String> lore) {
-        ItemStack item = new ItemStack(mat);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(color(name));
-            meta.setLore(lore);
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private String color(String s) {
-        return ChatColor.translateAlternateColorCodes('&', s);
     }
 
     @Override

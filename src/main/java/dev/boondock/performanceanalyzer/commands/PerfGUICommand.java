@@ -1,11 +1,8 @@
 package dev.boondock.performanceanalyzer.commands;
 
 import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
-import dev.boondock.performanceanalyzer.config.PluginConfig;
-import dev.boondock.performanceanalyzer.gui.PerformanceGUI;
+import dev.boondock.performanceanalyzer.gui.GuiManager;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
-import dev.boondock.performanceanalyzer.metrics.MemorySampler;
-import dev.boondock.performanceanalyzer.metrics.TickSampler;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -14,15 +11,11 @@ import org.bukkit.entity.Player;
 public class PerfGUICommand implements CommandExecutor {
 
     private final PerformanceAnalyzer plugin;
-    private final PluginConfig config;
-    private final TickSampler tickSampler;
-    private final MemorySampler memorySampler;
+    private final GuiManager guiManager;
 
-    public PerfGUICommand(PerformanceAnalyzer plugin, PluginConfig config, TickSampler tickSampler, MemorySampler memorySampler) {
+    public PerfGUICommand(PerformanceAnalyzer plugin, GuiManager guiManager) {
         this.plugin = plugin;
-        this.config = config;
-        this.tickSampler = tickSampler;
-        this.memorySampler = memorySampler;
+        this.guiManager = guiManager;
     }
 
     private LanguageManager lang() {
@@ -41,7 +34,7 @@ public class PerfGUICommand implements CommandExecutor {
             return true;
         }
 
-        new PerformanceGUI(plugin, config, tickSampler, memorySampler).open(player);
+        guiManager.openMain(player);
         return true;
     }
 }

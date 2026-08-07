@@ -5,7 +5,6 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class PluginConfig {
@@ -13,6 +12,8 @@ public class PluginConfig {
     private final JavaPlugin plugin;
     private FileConfiguration cfg;
     private final AsyncConfigSaver asyncSaver;
+    /** True when the in-memory config differs from disk (pending save). */
+    private volatile boolean dirty;
 
     public PluginConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -36,27 +37,11 @@ public class PluginConfig {
     private void validateConfig() {
         boolean hasErrors = false;
 
-        // Validate xray_stone_ore_ratio (must be 0.0-1.0)
-        double ratio = cfg.getDouble("anticheat.xray_stone_ore_ratio", 0.10);
-        if (ratio < 0.0 || ratio > 1.0) {
-            plugin.getLogger().warning("[Config] Invalid anticheat.xray_stone_ore_ratio: " + ratio + " (must be 0.0-1.0). Using default: 0.10");
-            cfg.set("anticheat.xray_stone_ore_ratio", 0.10);
-            hasErrors = true;
-        }
-
         // Validate log interval (must be > 0)
         int logInterval = cfg.getInt("performance.log_interval_seconds", 60);
         if (logInterval <= 0) {
             plugin.getLogger().warning("[Config] Invalid performance.log_interval_seconds: " + logInterval + " (must be > 0). Using default: 60");
             cfg.set("performance.log_interval_seconds", 60);
-            hasErrors = true;
-        }
-
-        // Validate TPS drop threshold (must be 0-20)
-        double tpsThreshold = cfg.getDouble("thresholds.tps_drop", 19.0);
-        if (tpsThreshold < 0.0 || tpsThreshold > 20.0) {
-            plugin.getLogger().warning("[Config] Invalid thresholds.tps_drop: " + tpsThreshold + " (must be 0-20). Using default: 19.0");
-            cfg.set("thresholds.tps_drop", 19.0);
             hasErrors = true;
         }
 
@@ -68,23 +53,8 @@ public class PluginConfig {
             hasErrors = true;
         }
 
-        // Validate speed thresholds (must be > 0)
-        double walkSpeed = cfg.getDouble("anticheat.speed_thresholds.walk", 0.5);
-        if (walkSpeed <= 0) {
-            plugin.getLogger().warning("[Config] Invalid anticheat.speed_thresholds.walk: " + walkSpeed + " (must be > 0). Using default: 0.5");
-            cfg.set("anticheat.speed_thresholds.walk", 0.5);
-            hasErrors = true;
-        }
-
-        double sprintSpeed = cfg.getDouble("anticheat.speed_thresholds.sprint", 1.0);
-        if (sprintSpeed <= 0) {
-            plugin.getLogger().warning("[Config] Invalid anticheat.speed_thresholds.sprint: " + sprintSpeed + " (must be > 0). Using default: 1.0");
-            cfg.set("anticheat.speed_thresholds.sprint", 1.0);
-            hasErrors = true;
-        }
-
         if (hasErrors) {
-            asyncSaver.saveAsync();
+            requestSave();
             plugin.getLogger().warning("[Config] Config validation found errors. Fixed values saved asynchronously.");
         }
     }
@@ -94,10 +64,21 @@ public class PluginConfig {
      * Uses version tracking to avoid unnecessary checks.
      */
     private void migrateConfig() {
+        // Obsolete-key cleanup runs on EVERY start, independent of
+        // config_version: merging only ever adds keys, and configs stamped
+        // with a matching version by older/experimental builds would keep
+        // dead sections forever (seen with the anticheat block surviving a
+        // 6->7 migration because the removal step was gated on "< 6").
+        boolean cleaned = removeObsoleteKeys();
+
         int configVersion = cfg.getInt("config_version", 0);
 
         // No migration needed if config is up to date
         if (configVersion >= Constants.CONFIG_VERSION) {
+            if (cleaned) {
+                requestSave();
+                plugin.getLogger().info("[Config] Removed obsolete keys from otherwise up-to-date config");
+            }
             return;
         }
 
@@ -111,40 +92,11 @@ public class PluginConfig {
             plugin.getLogger().info("[Config] New entry added: language (default: en)");
         }
 
-        // v1.2.1 - XRay excluded ores
-        if (!cfg.contains("anticheat.xray_excluded_ores")) {
-            cfg.set("anticheat.xray_excluded_ores", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.xray_excluded_ores");
-        }
-
         // v1.2.2 - Debug mode
         if (!cfg.contains("performance.debug_mode")) {
             cfg.set("performance.debug_mode", false);
             changed = true;
             plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: performance.debug_mode");
-        }
-
-        // v1.2.2 - OPs bypass option
-        if (!cfg.contains("anticheat.ops_bypass")) {
-            cfg.set("anticheat.ops_bypass", false);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.ops_bypass (Standard: false - OPs werden geprueft!)");
-        }
-
-        // v1.2.2 - Per-ore XRay thresholds
-        if (!cfg.contains("anticheat.xray_thresholds")) {
-            cfg.set("anticheat.xray_thresholds.coal", 20);
-            cfg.set("anticheat.xray_thresholds.iron", 15);
-            cfg.set("anticheat.xray_thresholds.copper", 15);
-            cfg.set("anticheat.xray_thresholds.gold", 10);
-            cfg.set("anticheat.xray_thresholds.redstone", 10);
-            cfg.set("anticheat.xray_thresholds.lapis", 8);
-            cfg.set("anticheat.xray_thresholds.diamond", 6);
-            cfg.set("anticheat.xray_thresholds.emerald", 4);
-            cfg.set("anticheat.xray_thresholds.ancient_debris", 3);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.xray_thresholds");
         }
 
         // v1.2.0 - Discord settings
@@ -163,76 +115,8 @@ public class PluginConfig {
             cfg.set("discord.alert_types.tps_drop", true);
             cfg.set("discord.alert_types.high_heap", true);
             cfg.set("discord.alert_types.packet_flood", true);
-            cfg.set("discord.alert_types.anticheat", true);
             changed = true;
             plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.alert_types");
-        }
-
-        // v1.2.0 - AntiCheat settings (default: disabled - must be enabled consciously)
-        if (!cfg.contains("performance.anticheat_enabled")) {
-            cfg.set("performance.anticheat_enabled", false);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: performance.anticheat_enabled");
-        }
-        if (!cfg.contains("anticheat.xray_detection")) {
-            cfg.set("anticheat.xray_detection", true);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.xray_detection");
-        }
-        // Note: xray_threshold_ores was replaced by per-ore thresholds in v1.2.2
-        if (!cfg.contains("anticheat.xray_timewindow_seconds")) {
-            cfg.set("anticheat.xray_timewindow_seconds", 60);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.xray_timewindow_seconds");
-        }
-        if (!cfg.contains("anticheat.whitelist_players")) {
-            cfg.set("anticheat.whitelist_players", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.whitelist_players");
-        }
-        if (!cfg.contains("anticheat.whitelist_groups")) {
-            cfg.set("anticheat.whitelist_groups", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: anticheat.whitelist_groups");
-        }
-
-        // v1.2.3 - Speed/Movement thresholds
-        if (!cfg.contains("anticheat.speed_thresholds")) {
-            cfg.set("anticheat.speed_thresholds.walk", 0.5);
-            cfg.set("anticheat.speed_thresholds.sprint", 1.0);
-            cfg.set("anticheat.speed_thresholds.fly", 1.5);
-            cfg.set("anticheat.speed_thresholds.vertical", 3.5);
-            cfg.set("anticheat.speed_thresholds.teleport", 15.0);
-            cfg.set("anticheat.speed_thresholds.violations_before_alert", 5);
-            cfg.set("anticheat.speed_thresholds.fly_violations_before_alert", 10);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.speed_thresholds");
-        }
-
-        // v1.2.3 - TPS drop threshold
-        if (!cfg.contains("thresholds.tps_drop")) {
-            cfg.set("thresholds.tps_drop", 19.0);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: thresholds.tps_drop");
-        }
-
-        // v1.2.4 - XRay stone-to-ore ratio threshold
-        if (!cfg.contains("anticheat.xray_stone_ore_ratio")) {
-            cfg.set("anticheat.xray_stone_ore_ratio", 0.10);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.xray_stone_ore_ratio");
-        }
-
-        // v2.0.0 - Restricted worlds (instant alert zones)
-        if (!cfg.contains("anticheat.restricted_worlds")) {
-            cfg.set("anticheat.restricted_worlds", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.restricted_worlds");
-        }
-        if (!cfg.contains("anticheat.restricted_world_ores")) {
-            cfg.set("anticheat.restricted_world_ores", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.restricted_world_ores");
         }
 
         // v2.0.0 - Lag Analysis settings (performance optimization)
@@ -250,28 +134,6 @@ public class PluginConfig {
             cfg.set("lag_analysis.chunk_analysis_timeout_ms", 5000);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: lag_analysis.chunk_analysis_timeout_ms");
-        }
-
-        // v2.0.1 - Individual AntiCheat toggles
-        if (!cfg.contains("anticheat.movement_checks")) {
-            cfg.set("anticheat.movement_checks", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.movement_checks");
-        }
-        if (!cfg.contains("anticheat.speed_detection")) {
-            cfg.set("anticheat.speed_detection", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.speed_detection");
-        }
-        if (!cfg.contains("anticheat.fly_detection")) {
-            cfg.set("anticheat.fly_detection", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.fly_detection");
-        }
-        if (!cfg.contains("anticheat.teleport_detection")) {
-            cfg.set("anticheat.teleport_detection", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: anticheat.teleport_detection");
         }
 
         // v2.0.0 - Lag Analysis Thresholds (configurable)
@@ -334,57 +196,16 @@ public class PluginConfig {
             plugin.getLogger().info("[Config] New entry added: api.port");
         }
         if (!cfg.contains("api.key")) {
-            cfg.set("api.key", "changeme");
+            cfg.set("api.key", "");
             changed = true;
-            plugin.getLogger().info("[Config] New entry added: api.key (IMPORTANT: Change this!)");
+            plugin.getLogger().info("[Config] New entry added: api.key (IMPORTANT: set a strong key before enabling the API!)");
         }
 
-        // v2.2.1 - Auto Entity Cleaner
-        if (!cfg.contains("entity_cleaner.enabled")) {
-            cfg.set("entity_cleaner.enabled", false);
+        // v3.1.0 (config_version 7) - REST API bind address (localhost-only default)
+        if (!cfg.contains("api.bind")) {
+            cfg.set("api.bind", "127.0.0.1");
             changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.enabled");
-        }
-        if (!cfg.contains("entity_cleaner.interval_seconds")) {
-            cfg.set("entity_cleaner.interval_seconds", 300);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.interval_seconds");
-        }
-        if (!cfg.contains("entity_cleaner.world_limit")) {
-            cfg.set("entity_cleaner.world_limit", 5000);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.world_limit");
-        }
-        if (!cfg.contains("entity_cleaner.chunk_limit")) {
-            cfg.set("entity_cleaner.chunk_limit", 100);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.chunk_limit");
-        }
-        if (!cfg.contains("entity_cleaner.dry_run")) {
-            cfg.set("entity_cleaner.dry_run", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.dry_run");
-        }
-        if (!cfg.contains("entity_cleaner.protect_villagers")) {
-            cfg.set("entity_cleaner.protect_villagers", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.protect_villagers");
-        }
-        if (!cfg.contains("entity_cleaner.protect_item_frames")) {
-            cfg.set("entity_cleaner.protect_item_frames", true);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.protect_item_frames");
-        }
-        if (!cfg.contains("entity_cleaner.blacklist")) {
-            List<String> defaultBlacklist = Arrays.asList("ENDER_DRAGON", "WITHER", "WARDEN");
-            cfg.set("entity_cleaner.blacklist", defaultBlacklist);
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.blacklist");
-        }
-        if (!cfg.contains("entity_cleaner.world_whitelist")) {
-            cfg.set("entity_cleaner.world_whitelist", new ArrayList<String>());
-            changed = true;
-            plugin.getLogger().info("[Config] New entry added: entity_cleaner.world_whitelist");
+            plugin.getLogger().info("[Config] New entry added: api.bind (default: 127.0.0.1)");
         }
 
         // v2.3.1 - Silent mode / Streamer mode
@@ -395,11 +216,44 @@ public class PluginConfig {
         }
 
         // Update config version if changes were made
-        if (changed || configVersion < Constants.CONFIG_VERSION) {
+        if (changed || cleaned || configVersion < Constants.CONFIG_VERSION) {
             cfg.set("config_version", Constants.CONFIG_VERSION);
-            asyncSaver.saveAsync();
+            requestSave();
             plugin.getLogger().info("[Config] Config migrated to version " + Constants.CONFIG_VERSION);
         }
+    }
+
+    /**
+     * Removes keys that no longer exist in v3.1.0 (AntiCheat split into its
+     * own plugin, entity cleaner removed, fixed thresholds replaced by the
+     * severity model). Uses {@code isSet} instead of {@code contains} so
+     * jar-embedded defaults never count as "present" — only keys the user's
+     * file actually carries are removed.
+     *
+     * @return true when at least one key was removed
+     */
+    private boolean removeObsoleteKeys() {
+        boolean changed = false;
+        for (String obsolete : new String[]{
+                "anticheat",
+                "performance.anticheat_enabled",
+                "entity_cleaner",
+                "discord.alert_types.anticheat",
+                "discord.alert_types.high_mspt",
+                "discord.alert_types.tps_drop",
+                "discord.alert_types.high_heap",
+                "thresholds.mspt",
+                "thresholds.tps_drop",
+                "thresholds.heap_usage",
+                "thresholds.heap_usage_percent",
+                "messages"}) {
+            if (cfg.isSet(obsolete)) {
+                cfg.set(obsolete, null);
+                changed = true;
+                plugin.getLogger().info("[Config] Removed obsolete entry: " + obsolete);
+            }
+        }
+        return changed;
     }
 
     // Language (null-safe with default)
@@ -463,187 +317,30 @@ public class PluginConfig {
         return cfg.getInt("api.port", 8080);
     }
 
+    /**
+     * Bind address for the REST API. Defaults to loopback; anything else
+     * exposes the API to the network and should only be used behind a
+     * TLS-terminating reverse proxy.
+     */
+    public String apiBind() {
+        String bind = cfg.getString("api.bind", "127.0.0.1");
+        return bind != null && !bind.isEmpty() ? bind : "127.0.0.1";
+    }
+
     public String apiKey() {
-        return cfg.getString("api.key", "changeme");
-    }
-
-    // Entity cleaner settings
-    public boolean entityCleanerEnabled() {
-        return cfg.getBoolean("entity_cleaner.enabled", false);
-    }
-
-    public int entityCleanerIntervalSeconds() {
-        return cfg.getInt("entity_cleaner.interval_seconds", 300);
-    }
-
-    public int entityCleanerWorldLimit() {
-        return cfg.getInt("entity_cleaner.world_limit", 5000);
-    }
-
-    public int entityCleanerChunkLimit() {
-        return cfg.getInt("entity_cleaner.chunk_limit", 100);
-    }
-
-    public boolean entityCleanerDryRun() {
-        return cfg.getBoolean("entity_cleaner.dry_run", true);
-    }
-
-    public boolean entityCleanerProtectVillagers() {
-        return cfg.getBoolean("entity_cleaner.protect_villagers", true);
-    }
-
-    public boolean entityCleanerProtectItemFrames() {
-        return cfg.getBoolean("entity_cleaner.protect_item_frames", true);
-    }
-
-    public List<String> entityCleanerBlacklist() {
-        return cfg.getStringList("entity_cleaner.blacklist");
-    }
-
-    public List<String> entityCleanerWorldWhitelist() {
-        return cfg.getStringList("entity_cleaner.world_whitelist");
+        return cfg.getString("api.key", "");
     }
 
     public int logIntervalSeconds() { return cfg.getInt("performance.log_interval_seconds", 60); }
+    /** Seconds after startup during which no incidents/alerts are raised (v3.1.0). */
+    public int startupGraceSeconds() { return cfg.getInt("performance.startup_grace_seconds", 60); }
     public boolean profilingEnabled() { return cfg.getBoolean("performance.enable_profiling", true); }
     public boolean packetAnalysisEnabled() { return cfg.getBoolean("performance.packet_analysis", true); }
-    public boolean anticheatEnabled() { return cfg.getBoolean("performance.anticheat_enabled", false); }
     public boolean debugMode() { return cfg.getBoolean("performance.debug_mode", false); }
 
-    public double thresholdMspt() { return cfg.getDouble("thresholds.mspt", 50.0); }
-    public double thresholdHeapUsage() { return cfg.getDouble("thresholds.heap_usage_percent", 80.0); }
+    /** Single-tick spike threshold in ms of real tick work (v3.1.0). */
+    public double spikeTickMs() { return cfg.getDouble("thresholds.spike_tick_ms", 100.0); }
     public double packetFloodThreshold() { return cfg.getDouble("thresholds.packet_flood_per_tick", 1000.0); }
-
-    // AntiCheat
-    public boolean xrayDetectionEnabled() { return cfg.getBoolean("anticheat.xray_detection", true); }
-    public boolean movementChecksEnabled() { return cfg.getBoolean("anticheat.movement_checks", true); }
-    public boolean speedDetectionEnabled() { return cfg.getBoolean("anticheat.speed_detection", true); }
-    public boolean flyDetectionEnabled() { return cfg.getBoolean("anticheat.fly_detection", true); }
-    public boolean teleportDetectionEnabled() { return cfg.getBoolean("anticheat.teleport_detection", true); }
-    public int xrayTimewindowSeconds() { return cfg.getInt("anticheat.xray_timewindow_seconds", 60); }
-    public List<String> xrayExcludedOres() { return cfg.getStringList("anticheat.xray_excluded_ores"); }
-
-    // Per-ore XRay thresholds
-    public int xrayThreshold(String oreType) {
-        String key = oreType.toLowerCase()
-            .replace("_ore", "")
-            .replace("deepslate_", "");
-
-        // Special handling for ancient_debris (no _ore suffix)
-        if (key.equals("ancient_debris")) {
-            int threshold = cfg.getInt("anticheat.xray_thresholds.ancient_debris", 3);
-            if (debugMode()) {
-                plugin.getLogger().info("[XRay Threshold] " + oreType + " -> ancient_debris -> threshold: " + threshold);
-            }
-            return threshold;
-        }
-
-        int threshold = cfg.getInt("anticheat.xray_thresholds." + key, 10);
-        // Debug: Log threshold lookups
-        if (debugMode()) {
-            plugin.getLogger().info("[XRay Threshold] " + oreType + " -> key: " + key + " -> threshold: " + threshold);
-        }
-        return threshold;
-    }
-
-    // XRay Stone-to-Ore ratio threshold
-    public double xrayStoneOreRatio() {
-        return cfg.getDouble("anticheat.xray_stone_ore_ratio", 0.10);
-    }
-
-    public int xrayThresholdCoal() { return cfg.getInt("anticheat.xray_thresholds.coal", 20); }
-    public int xrayThresholdIron() { return cfg.getInt("anticheat.xray_thresholds.iron", 15); }
-    public int xrayThresholdCopper() { return cfg.getInt("anticheat.xray_thresholds.copper", 15); }
-    public int xrayThresholdGold() { return cfg.getInt("anticheat.xray_thresholds.gold", 10); }
-    public int xrayThresholdRedstone() { return cfg.getInt("anticheat.xray_thresholds.redstone", 10); }
-    public int xrayThresholdLapis() { return cfg.getInt("anticheat.xray_thresholds.lapis", 8); }
-    public int xrayThresholdDiamond() { return cfg.getInt("anticheat.xray_thresholds.diamond", 6); }
-    public int xrayThresholdEmerald() { return cfg.getInt("anticheat.xray_thresholds.emerald", 4); }
-    public int xrayThresholdAncientDebris() { return cfg.getInt("anticheat.xray_thresholds.ancient_debris", 3); }
-    public boolean opsBypass() { return cfg.getBoolean("anticheat.ops_bypass", false); }
-    public List<String> anticheatWhitelistPlayers() { return cfg.getStringList("anticheat.whitelist_players"); }
-    public List<String> anticheatWhitelistGroups() { return cfg.getStringList("anticheat.whitelist_groups"); }
-
-    // Movement/Speed thresholds
-    public double speedThresholdWalk() { return cfg.getDouble("anticheat.speed_thresholds.walk", 0.5); }
-    public double speedThresholdSprint() { return cfg.getDouble("anticheat.speed_thresholds.sprint", 1.0); }
-    public double speedThresholdFly() { return cfg.getDouble("anticheat.speed_thresholds.fly", 1.5); }
-    public double flyThreshold() { return cfg.getDouble("anticheat.speed_thresholds.vertical", 3.5); }
-    public double teleportThreshold() { return cfg.getDouble("anticheat.speed_thresholds.teleport", 15.0); }
-    public int speedViolationsThreshold() { return cfg.getInt("anticheat.speed_thresholds.violations_before_alert", 5); }
-    public int flyViolationsThreshold() { return cfg.getInt("anticheat.speed_thresholds.fly_violations_before_alert", 10); }
-
-    // TPS threshold
-    public double tpsDropThreshold() { return cfg.getDouble("thresholds.tps_drop", 19.0); }
-
-    public void addWhitelistPlayer(String uuid) {
-        List<String> list = anticheatWhitelistPlayers();
-        if (!list.contains(uuid)) {
-            list.add(uuid);
-            cfg.set("anticheat.whitelist_players", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    public void removeWhitelistPlayer(String uuid) {
-        List<String> list = anticheatWhitelistPlayers();
-        if (list.remove(uuid)) {
-            cfg.set("anticheat.whitelist_players", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    public void addWhitelistGroup(String group) {
-        List<String> list = anticheatWhitelistGroups();
-        if (!list.contains(group)) {
-            list.add(group);
-            cfg.set("anticheat.whitelist_groups", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    public void removeWhitelistGroup(String group) {
-        List<String> list = anticheatWhitelistGroups();
-        if (list.remove(group)) {
-            cfg.set("anticheat.whitelist_groups", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    // XRay Excluded Ores
-    public void addExcludedOre(String ore) {
-        List<String> list = new ArrayList<>(xrayExcludedOres());
-        String upperOre = ore.toUpperCase();
-        if (!list.contains(upperOre)) {
-            list.add(upperOre);
-            cfg.set("anticheat.xray_excluded_ores", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    public void removeExcludedOre(String ore) {
-        List<String> list = new ArrayList<>(xrayExcludedOres());
-        String upperOre = ore.toUpperCase();
-        if (list.remove(upperOre)) {
-            cfg.set("anticheat.xray_excluded_ores", list);
-            asyncSaver.saveAsync();
-        }
-    }
-
-    // Restricted Worlds (instant alert zones)
-    public List<String> restrictedWorlds() {
-        return cfg.getStringList("anticheat.restricted_worlds");
-    }
-
-    public List<String> restrictedWorldOres() {
-        List<String> ores = cfg.getStringList("anticheat.restricted_world_ores");
-        // If empty, return empty list (will be interpreted as "all ores" in XRayDetector)
-        return ores;
-    }
-
-    public boolean isRestrictedWorld(String worldName) {
-        return restrictedWorlds().contains(worldName);
-    }
 
     // Lag Analysis (v2.0.0+)
     public boolean lagAnalysisPlayerTracking() {
@@ -696,7 +393,7 @@ public class PluginConfig {
     public String discordWebhookUrl() { return cfg.getString("discord.webhook_url", ""); }
     public boolean discordAlertType(String type) { return cfg.getBoolean("discord.alert_types." + type, true); }
 
-    // Fallback File Logging (v3.0.0)
+    // Fallback File Logging (v3.1.0)
     public boolean fallbackFileLoggingEnabled() {
         return cfg.getBoolean("database.fallback_file_logging", true);
     }
@@ -713,16 +410,27 @@ public class PluginConfig {
 
     public void setSilentPlayers(List<String> players) {
         cfg.set("alerts.silent_players", players);
+        requestSave();
+    }
+
+    private void requestSave() {
+        dirty = true;
         asyncSaver.saveAsync();
     }
 
-    public String msg(String path, String def) { return cfg.getString("messages." + path, def); }
-
     /**
-     * Save config synchronously on shutdown.
-     * Should only be called during plugin disable.
+     * Save config synchronously on shutdown — but ONLY when this plugin
+     * actually changed the in-memory config. Unconditional saving would
+     * write the stale in-memory state over any config.yml edits an admin
+     * made while the server was running (observed: a hand-added api section
+     * was wiped by the shutdown save).
      */
     public void saveSyncOnShutdown() {
+        if (!dirty) {
+            plugin.getLogger().fine("[Config] No pending changes, skipping shutdown save");
+            return;
+        }
         asyncSaver.saveSyncOnShutdown();
+        dirty = false;
     }
 }

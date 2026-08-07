@@ -1,6 +1,9 @@
 # PerformanceAnalyzer Configuration
 # Plugin for monitoring and analyzing server performance
 
+# Internal: config schema version used for automatic migration. Do not edit.
+config_version: 7
+
 # Language Setting
 # Available: en (English), de (German)
 language: en
@@ -26,21 +29,28 @@ database:
     minimum_idle: 2
     connection_timeout_ms: 10000
 
+  # Automatic cleanup: how many days of data to keep in the database
+  retention_days: 30
+
+  # Fallback file logging when the database is unavailable
+  fallback_file_logging: true
+  fallback_log_file: "plugins/PerformanceAnalyzer/fallback.log"
+
 # Performance Monitoring Settings
 performance:
   # How often should metrics be written to the database? (in seconds)
   log_interval_seconds: 60
+
+  # Grace period after server start (seconds) during which no incidents or
+  # alerts are raised - boot ticks are always slow and would otherwise
+  # trigger a false EMERGENCY on every start. Metrics are still collected.
+  startup_grace_seconds: 60
 
   # Enable profiling (for future Spark integration)
   enable_profiling: true
 
   # Packet analysis via ProtocolLib (requires ProtocolLib plugin)
   packet_analysis: true
-
-  # Enable AntiCheat module (BETA - can produce false positives!)
-  # Recommendation: For production use Matrix, Vulcan or Spartan instead
-  # NOTE: Disabled by default - must be consciously enabled
-  anticheat_enabled: false
 
   # Debug mode: Enables detailed console output
   # Only enable for troubleshooting, otherwise logs become too verbose
@@ -116,107 +126,21 @@ lag_analysis:
   # Standard: 101+
   # (Everything above plugin_risk_medium is considered high)
 
-# AntiCheat Settings
-anticheat:
-  # ====== Individual AntiCheat Features ======
-  # Each feature can be independently enabled/disabled
-
-  # Enable XRay detection
-  xray_detection: true
-
-  # Enable movement checks (Speed/Fly/Teleport)
-  movement_checks: true
-
-  # Speed hack detection (horizontal movement)
-  speed_detection: true
-
-  # Fly hack detection (vertical movement)
-  fly_detection: true
-
-  # Detect teleport-like movements
-  teleport_detection: true
-
-  # Time window for XRay detection (in seconds)
-  xray_timewindow_seconds: 60
-
-  # Ores excluded from XRay detection
-  # Available: COAL_ORE, IRON_ORE, COPPER_ORE, GOLD_ORE, REDSTONE_ORE, LAPIS_ORE, DIAMOND_ORE, EMERALD_ORE, ANCIENT_DEBRIS
-  # (DEEPSLATE_ variants also possible)
-  xray_excluded_ores: []
-
-  # Restricted zones: Worlds where alerts are triggered immediately
-  # If a player mines defined ores in these worlds, alerts are triggered IMMEDIATELY
-  # Format: List of world names (exact match required)
-  restricted_worlds: []
-  # Example: ["world_nether", "mining_world"]
-
-  # Ores monitored in restricted zones
-  # If empty, ALL valuable ores are monitored
-  # Format: List of ore names (e.g. DIAMOND_ORE, EMERALD_ORE, etc.)
-  restricted_world_ores: []
-  # Example: ["DIAMOND_ORE", "EMERALD_ORE", "ANCIENT_DEBRIS"]
-
-  # Per-ore thresholds for XRay suspicion
-  # How many ores must be mined in a short time to suspect XRay?
-  # Rare ores (Ancient Debris, Emerald) need fewer, common ones (Coal, Iron) need more
-  xray_thresholds:
-    coal: 20
-    iron: 15
-    copper: 15
-    gold: 10
-    redstone: 10
-    lapis: 8
-    diamond: 6
-    emerald: 4
-    ancient_debris: 3
-
-  # Ore-to-stone ratio threshold (0.0 - 1.0)
-  # Normal mining: 2-5% ores (0.02-0.05)
-  # Suspicious: > 10% ores (> 0.10)
-  xray_stone_ore_ratio: 0.10
-
-  # Should OPs automatically bypass AntiCheat checks?
-  # WARNING: If true, OPs will NOT be checked for XRay!
-  # Set to false to also check OPs
-  ops_bypass: false
-
-  # Whitelist: Player UUIDs excluded from AntiCheat checks
-  # Format: ["uuid1", "uuid2"]
-  whitelist_players: []
-
-  # LuckPerms groups excluded from AntiCheat
-  # Format: ["admin", "moderator"]
-  whitelist_groups: []
-
-  # Movement/Speed Detection Thresholds
-  # Values are in blocks per tick (higher = more tolerant)
-  speed_thresholds:
-    walk: 0.5           # Max speed while walking
-    sprint: 1.0         # Max speed while sprinting
-    fly: 1.5            # Max speed for creative flight
-    vertical: 3.5       # Max vertical speed (fly hack detection)
-    teleport: 15.0      # Distance that counts as teleport-like movement
-    violations_before_alert: 5    # Consecutive violations before alerting (speed)
-    fly_violations_before_alert: 10  # Consecutive violations before alerting (fly)
-
 # Warning Thresholds
+#
+# v3.1.0: fixed MSPT/TPS thresholds are gone. Severity is derived from the
+# real tick-work time against the 50 ms deadline plus the server's own
+# learned baseline (a server that normally runs at 5 ms alerts far earlier
+# than one that normally runs at 30 ms).
 thresholds:
-  # MSPT threshold for warnings (milliseconds per tick)
-  # Standard: 50ms (anything above is considered problematic)
-  mspt: 50.0
-
-  # Heap usage threshold (percent)
-  # Standard: 80% (above becomes critical)
-  heap_usage_percent: 80.0
+  # Single-tick spike threshold (milliseconds of real tick work).
+  # One tick above this value triggers immediate incident analysis.
+  spike_tick_ms: 100.0
 
   # Packet flood threshold (packets per tick)
   # Standard: 1000 (may indicate DDoS or lag machine)
   # Set to 0 to disable
   packet_flood_per_tick: 1000.0
-
-  # TPS drop threshold (when to warn about TPS drops)
-  # Standard: 19.0 (anything below is considered problematic)
-  tps_drop: 19.0
 
 # Discord Webhook for Notifications
 discord:
@@ -229,21 +153,52 @@ discord:
 
   # Which alerts should be sent to Discord?
   alert_types:
-    high_mspt: true
-    tps_drop: true
-    high_heap: true
+    incident_opened: true
+    incident_escalated: true
+    incident_resolved: true
     packet_flood: true
-    anticheat: true
+    performance: true
 
 # Alert Preferences (Streamer/Silent Mode)
 alerts:
   # Players who have muted alerts (persistent across restarts)
-  # Format: "uuid" (all muted) or "uuid:XRAY,MOVEMENT,PERFORMANCE" (specific types)
+  # Format: "uuid" (all muted) or "uuid:PERFORMANCE" (specific types)
   # Managed via /perfsilent command - do not edit manually
   silent_players: []
 
-# Messages (supports color codes with &)
-messages:
-  no_permission: "&cYou don't have permission for this."
-  status_title: "&aServer Performance (Live)"
-  history_title: "&aPerformance History"
+# GUI Settings
+gui:
+  # Automatically refresh open GUI pages
+  auto_refresh: true
+
+# REST API for external monitoring (Grafana, Uptime-Kuma, custom dashboards)
+#
+# Endpoints (all GET):
+#   /api/health              - liveness probe (no authentication)
+#   /api/metrics             - tick/GC/severity/baseline/plugin/activity snapshot
+#   /api/incidents           - active + recent incidents with findings
+#   /api/worlds              - cached per-world stats + hot chunks
+#   /api/metrics/prometheus  - Prometheus text format for Grafana scraping
+#
+# Authentication: every endpoint except /api/health requires the header
+#   Authorization: Bearer <key>
+# The API refuses to start while 'key' is empty or "changeme".
+#
+# Example: curl -H "Authorization: Bearer <key>" http://127.0.0.1:8080/api/metrics
+api:
+  # Enable the HTTP server
+  enabled: false
+
+  # Bind address. Default 127.0.0.1 = reachable from this machine only
+  # (safe default). Only set 0.0.0.0 if the API sits behind a
+  # TLS-terminating reverse proxy (nginx/caddy) - the API itself speaks
+  # plain HTTP and the bearer key would otherwise cross the network
+  # unencrypted.
+  bind: "127.0.0.1"
+
+  # TCP port
+  port: 8080
+
+  # API key for the Authorization: Bearer header.
+  # Generate a strong random one, e.g.:  openssl rand -hex 32
+  key: ""

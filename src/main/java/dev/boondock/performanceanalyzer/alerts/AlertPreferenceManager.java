@@ -13,8 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Categories:
  * - ALL: Mutes everything
- * - XRAY: XRay detection alerts
- * - MOVEMENT: Movement/Speed/Fly alerts
  * - PERFORMANCE: Performance alerts (TPS drops, high MSPT, heap warnings)
  *
  * @since 2.3.1
@@ -163,7 +161,7 @@ public class AlertPreferenceManager {
                         try {
                             muted.add(AlertCategory.valueOf(cat.trim().toUpperCase()));
                         } catch (IllegalArgumentException e) {
-                            plugin.getLogger().warning("[AlertPreferences] Invalid alert category: " + cat.trim());
+                            // Silently drop unknown category tokens (e.g. XRAY/MOVEMENT from old configs)
                         }
                     }
                 }
@@ -206,8 +204,6 @@ public class AlertPreferenceManager {
      */
     public enum AlertCategory {
         ALL("Alle Alerts", "All Alerts"),
-        XRAY("XRay-Erkennung", "XRay Detection"),
-        MOVEMENT("Movement-Checks", "Movement Checks"),
         PERFORMANCE("Performance-Warnungen", "Performance Warnings");
 
         private final String displayNameDe;

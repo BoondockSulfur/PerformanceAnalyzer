@@ -28,5 +28,5 @@ jobs:
       if: success()
       with:
         name: performance-analyzer-jar
-        path: target/PerformanceAnalyzer-*.jar
+        path: target/performance-analyzer-*.jar
         retention-days: 30

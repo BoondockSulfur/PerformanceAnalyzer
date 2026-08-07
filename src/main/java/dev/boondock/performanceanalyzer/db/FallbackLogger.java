@@ -1,5 +1,6 @@
 package dev.boondock.performanceanalyzer.db;
 
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.plugin.Plugin;
 
 import java.io.BufferedWriter;
@@ -15,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Fallback file logger for when database is unavailable.
  * Ensures no data loss during database outages.
  *
- * @since 3.0.0
+ * @since 3.1.0
  */
 public class FallbackLogger {
 
@@ -74,7 +75,7 @@ public class FallbackLogger {
             return; // Already writing
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        Scheduling.runAsync(plugin, () -> {
             try {
                 flush();
             } catch (IOException e) {

@@ -1,112 +1,170 @@
 package dev.boondock.performanceanalyzer.alerts;
 
+import dev.boondock.performanceanalyzer.analysis.Finding;
+import dev.boondock.performanceanalyzer.analysis.Incident;
+import dev.boondock.performanceanalyzer.analysis.IncidentAnalyzer;
+import dev.boondock.performanceanalyzer.analysis.Severity;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
+import dev.boondock.performanceanalyzer.lang.LanguageManager;
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.Bukkit;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
-import dev.boondock.performanceanalyzer.util.Constants;
-
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 /**
- * Manages performance alerts and notifications to admins.
+ * Notifies admins about incidents — with severity, escalation and a
+ * "resolved" message including the incident duration.
+ *
+ * <p>Dispatch is thread-safe by construction: the monitor loop runs async,
+ * so all Bukkit interaction is funneled through the global scheduler and
+ * sounds are played on each player's own scheduler (Folia-legal). Incident
+ * open/escalate/resolve messages always go out (state changes are the whole
+ * point); only repeated same-state alerts are cooldown-guarded.</p>
  */
-public class AlertManager {
+public class AlertManager implements IncidentAnalyzer.Listener {
+
+    public enum AlertType {
+        PERFORMANCE,
+        PACKET_FLOOD
+    }
+
+    private static final Pattern COLOR_CODES = Pattern.compile("§x(§[0-9a-fA-F]){6}|§[0-9a-fk-orA-FK-OR]");
 
     private final Plugin plugin;
     private final PluginConfig config;
+    private final LanguageManager lang;
     private final DiscordWebhook discordWebhook;
-    private final Set<AlertType> recentAlerts = ConcurrentHashMap.newKeySet();
-    private final ConcurrentHashMap<AlertType, AtomicLong> lastAlertTimes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> lastAlertTimes = new ConcurrentHashMap<>();
     private AlertPreferenceManager preferenceManager;
 
-    public AlertManager(Plugin plugin, PluginConfig config) {
+    public AlertManager(Plugin plugin, PluginConfig config, LanguageManager lang) {
         this.plugin = plugin;
         this.config = config;
+        this.lang = lang;
         this.discordWebhook = new DiscordWebhook(plugin, config);
-
-        // Periodically clean up stale entries from lastAlertTimes to prevent memory leak
-        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            long now = System.currentTimeMillis();
-            lastAlertTimes.entrySet().removeIf(e -> (now - e.getValue().get()) > Constants.ALERT_COOLDOWN_MS * 2);
-        }, 6000L, 6000L); // Every 5 minutes
     }
 
-    /**
-     * Send an alert if conditions are met and cooldown has passed.
-     * Thread-safe implementation using ConcurrentHashMap and AtomicLong.
-     */
-    public void sendAlert(AlertType type, String message, double value) {
-        long now = System.currentTimeMillis();
-
-        // Thread-safe cooldown check using atomic CAS to prevent race conditions
-        AtomicLong lastTime = lastAlertTimes.computeIfAbsent(type, k -> new AtomicLong(0));
-        while (true) {
-            long lastAlertTime = lastTime.get();
-            if ((now - lastAlertTime) < Constants.ALERT_COOLDOWN_MS) {
-                return; // Still cooling down
-            }
-            if (lastTime.compareAndSet(lastAlertTime, now)) {
-                break; // Successfully claimed this alert slot
-            }
-            // CAS failed, another thread updated — retry
-        }
-
-        // Send alert
-        String formatted = String.format("§c[Performance Alert] §e%s: §f%s (Wert: %.2f)", type.getDisplayName(), message, value);
-
-        // Log to console only in debug mode
-        if (config.debugMode()) {
-            plugin.getLogger().warning(formatted.replaceAll("§[0-9a-fk-or]", ""));
-        }
-
-        // Notify online admins (respecting silent mode preferences)
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.hasPermission("performance.admin")) {
-                if (preferenceManager != null &&
-                    !preferenceManager.shouldReceive(player, AlertPreferenceManager.AlertCategory.PERFORMANCE)) {
-                    continue; // Player has muted performance alerts
-                }
-                player.sendMessage(formatted);
-                // Optional: play sound
-                player.playSound(player.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 0.5f);
-            }
-        }
-
-        // Send to Discord
-        discordWebhook.sendAlert(type, type.getDisplayName(), message, value);
-
-        // Schedule cooldown reset (ticks = milliseconds / 50)
-        Bukkit.getScheduler().runTaskLater(plugin, () -> recentAlerts.remove(type), Constants.ALERT_COOLDOWN_MS / 50);
-    }
-
-    /**
-     * Set the alert preference manager for silent mode support.
-     */
     public void setPreferenceManager(AlertPreferenceManager preferenceManager) {
         this.preferenceManager = preferenceManager;
     }
 
-    public enum AlertType {
-        HIGH_MSPT("Hohe MSPT"),
-        HIGH_HEAP("Hoher Heap-Verbrauch"),
-        TPS_DROP("TPS-Einbruch"),
-        PACKET_FLOOD("Paket-Flut"),
-        ANTICHEAT("AntiCheat-Warnung");
+    /* ------------------------------------------------------------------ */
+    /* Incident lifecycle (called from the monitor thread)                 */
+    /* ------------------------------------------------------------------ */
 
-        private final String displayName;
+    @Override
+    public void incidentOpened(Incident incident) {
+        String message = lang.format("alert.incident_opened",
+                incident.peakSeverity().color() + incident.peakSeverity().name(),
+                String.format("%.1f", incident.worstAvgMspt()),
+                String.format("%.1f", incident.lowestTps()),
+                topFindingLine(incident));
+        broadcast(incident.peakSeverity(), message, true);
+        toDiscord("incident_opened", incident.peakSeverity(), message, incident.peakScore());
+    }
 
-        AlertType(String displayName) {
-            this.displayName = displayName;
+    @Override
+    public void incidentEscalated(Incident incident) {
+        String message = lang.format("alert.incident_escalated",
+                incident.currentSeverity().color() + incident.currentSeverity().name(),
+                topFindingLine(incident));
+        broadcast(incident.currentSeverity(), message, true);
+        toDiscord("incident_escalated", incident.currentSeverity(), message, incident.peakScore());
+    }
+
+    @Override
+    public void incidentResolved(Incident incident) {
+        String message = lang.format("alert.incident_resolved",
+                incident.formattedDuration(),
+                String.format("%.0f", incident.worstTickMs()),
+                String.format("%.1f", incident.lowestTps()));
+        broadcast(Severity.OK, message, false);
+        toDiscord("incident_resolved", Severity.OK, message, incident.peakScore());
+    }
+
+    private String topFindingLine(Incident incident) {
+        for (Finding finding : incident.findings()) {
+            if (finding.type() != Finding.Type.UNKNOWN) {
+                return finding.title();
+            }
         }
+        return lang.format("alert.no_clear_cause");
+    }
 
-        public String getDisplayName() {
-            return displayName;
+    /* ------------------------------------------------------------------ */
+    /* Simple threshold alerts (e.g. packet flood)                         */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Cooldown-guarded standalone alert. The cooldown shrinks with severity:
+     * EMERGENCY 2 min, CRITICAL 5 min, otherwise 10 min.
+     */
+    public void sendAlert(AlertType type, Severity severity, String message, double value) {
+        long cooldownMs = switch (severity) {
+            case EMERGENCY -> 2 * 60_000L;
+            case CRITICAL -> 5 * 60_000L;
+            default -> 10 * 60_000L;
+        };
+        long now = System.currentTimeMillis();
+        AtomicLong lastTime = lastAlertTimes.computeIfAbsent(type.name(), k -> new AtomicLong(0));
+        while (true) {
+            long last = lastTime.get();
+            if (now - last < cooldownMs) {
+                return;
+            }
+            if (lastTime.compareAndSet(last, now)) {
+                break;
+            }
         }
+        String formatted = severity.color() + "[Performance] §f" + message;
+        broadcast(severity, formatted, severity.atLeast(Severity.WARNING));
+        toDiscord(type == AlertType.PACKET_FLOOD ? "packet_flood" : "performance", severity, message, value);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Dispatch                                                            */
+    /* ------------------------------------------------------------------ */
+
+    private void broadcast(Severity severity, String message, boolean withSound) {
+        // Incidents are rare, state-changing events — always visible in the
+        // console, not only to online players with the alert permission.
+        if (severity.atLeast(Severity.CRITICAL)) {
+            plugin.getLogger().warning(stripColors(message));
+        } else {
+            plugin.getLogger().info(stripColors(message));
+        }
+        Scheduling.runGlobal(plugin, () -> {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (!player.hasPermission("performance.alerts") && !player.hasPermission("performance.admin")) {
+                    continue;
+                }
+                if (preferenceManager != null
+                        && !preferenceManager.shouldReceive(player, AlertPreferenceManager.AlertCategory.PERFORMANCE)) {
+                    continue;
+                }
+                player.sendMessage(message);
+                if (withSound) {
+                    Scheduling.runAtEntity(plugin, player, () ->
+                            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f,
+                                    severity.atLeast(Severity.CRITICAL) ? 0.5f : 0.8f));
+                }
+            }
+        });
+    }
+
+    private void toDiscord(String discordType, Severity severity, String message, double value) {
+        if (!config.discordEnabled() || !config.discordAlertType(discordType)) {
+            return;
+        }
+        discordWebhook.sendAlert(severity, stripColors(message), value);
+    }
+
+    private static String stripColors(String input) {
+        return COLOR_CODES.matcher(input).replaceAll("");
     }
 }

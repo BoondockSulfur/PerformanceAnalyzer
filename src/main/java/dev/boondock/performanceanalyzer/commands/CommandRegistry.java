@@ -4,99 +4,66 @@ import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
 import dev.boondock.performanceanalyzer.alerts.AlertPreferenceManager;
 import dev.boondock.performanceanalyzer.analysis.ChunkTracker;
 import dev.boondock.performanceanalyzer.analysis.EntityAnalyzer;
-import dev.boondock.performanceanalyzer.analysis.PerformanceDropAnalyzer;
+import dev.boondock.performanceanalyzer.analysis.IncidentAnalyzer;
+import dev.boondock.performanceanalyzer.analysis.PlayerActivityTracker;
 import dev.boondock.performanceanalyzer.analysis.WorldStatsManager;
-import dev.boondock.performanceanalyzer.anticheat.MovementAlertManager;
-import dev.boondock.performanceanalyzer.anticheat.XRayAlertManager;
-import dev.boondock.performanceanalyzer.anticheat.XRayDetector;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
-import dev.boondock.performanceanalyzer.gui.AntiCheatGUI;
-import dev.boondock.performanceanalyzer.gui.ConfigGUI;
-import dev.boondock.performanceanalyzer.gui.LagAnalysisGUI;
-import dev.boondock.performanceanalyzer.gui.PerformanceDropsGUI;
-import dev.boondock.performanceanalyzer.gui.PerformanceGUI;
+import dev.boondock.performanceanalyzer.gui.GuiManager;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
-import dev.boondock.performanceanalyzer.metrics.MemorySampler;
-import dev.boondock.performanceanalyzer.metrics.TickSampler;
-import dev.boondock.performanceanalyzer.analysis.PlayerActivityTracker;
-import dev.boondock.performanceanalyzer.analysis.PluginTimingsAnalyzer;
+import dev.boondock.performanceanalyzer.monitor.MonitorService;
+import dev.boondock.performanceanalyzer.timing.ListenerTimings;
 import org.bukkit.command.PluginCommand;
 
 /**
  * Central command registry for PerformanceAnalyzer.
- * Manages all command registration and GUI event listeners.
+ * Manages all command registration and the single shared GUI listener.
  *
- * @since 3.0.0
+ * @since 3.1.0
  */
 public class CommandRegistry {
 
     private final PerformanceAnalyzer plugin;
     private final PluginConfig config;
     private final LanguageManager lang;
-    private final TickSampler tickSampler;
-    private final MemorySampler memorySampler;
+    private final MonitorService monitorService;
     private final DatabaseManager database;
     private final WorldStatsManager worldStatsManager;
     private final EntityAnalyzer entityAnalyzer;
     private final ChunkTracker chunkTracker;
-    private final PerformanceDropAnalyzer dropAnalyzer;
+    private final IncidentAnalyzer incidentAnalyzer;
     private final PlayerActivityTracker playerActivityTracker;
-    private final PluginTimingsAnalyzer pluginTimingsAnalyzer;
+    private final ListenerTimings listenerTimings;
 
-    // AntiCheat components (nullable if disabled)
-    private XRayAlertManager xrayAlertManager;
-    private XRayDetector xrayDetector;
-    private MovementAlertManager movementAlertManager;
+    private GuiManager guiManager;
 
     public CommandRegistry(PerformanceAnalyzer plugin, PluginConfig config, LanguageManager lang,
-                          TickSampler tickSampler, MemorySampler memorySampler,
-                          DatabaseManager database, WorldStatsManager worldStatsManager,
-                          EntityAnalyzer entityAnalyzer, ChunkTracker chunkTracker,
-                          PerformanceDropAnalyzer dropAnalyzer,
-                          PlayerActivityTracker playerActivityTracker,
-                          PluginTimingsAnalyzer pluginTimingsAnalyzer) {
+                           MonitorService monitorService, DatabaseManager database,
+                           WorldStatsManager worldStatsManager, EntityAnalyzer entityAnalyzer,
+                           ChunkTracker chunkTracker, IncidentAnalyzer incidentAnalyzer,
+                           PlayerActivityTracker playerActivityTracker,
+                           ListenerTimings listenerTimings) {
         this.plugin = plugin;
         this.config = config;
         this.lang = lang;
-        this.tickSampler = tickSampler;
-        this.memorySampler = memorySampler;
+        this.monitorService = monitorService;
         this.database = database;
         this.worldStatsManager = worldStatsManager;
         this.entityAnalyzer = entityAnalyzer;
         this.chunkTracker = chunkTracker;
-        this.dropAnalyzer = dropAnalyzer;
+        this.incidentAnalyzer = incidentAnalyzer;
         this.playerActivityTracker = playerActivityTracker;
-        this.pluginTimingsAnalyzer = pluginTimingsAnalyzer;
+        this.listenerTimings = listenerTimings;
     }
 
     /**
-     * Set AntiCheat components (called when AntiCheat is enabled).
-     */
-    public void setAntiCheatComponents(XRayAlertManager xrayAlertManager,
-                                       XRayDetector xrayDetector,
-                                       MovementAlertManager movementAlertManager) {
-        this.xrayAlertManager = xrayAlertManager;
-        this.xrayDetector = xrayDetector;
-        this.movementAlertManager = movementAlertManager;
-    }
-
-    /**
-     * Register all commands and GUI listeners.
+     * Register all commands and the shared GUI listener.
      */
     public void registerAll() {
         registerPerformanceCommands();
         registerAnalysisCommands();
         registerGUICommands();
-        registerAntiCheatCommands();
         plugin.getLogger().info("Command registry initialized: All commands registered");
-    }
-
-    /**
-     * Re-register AntiCheat commands (used when AntiCheat is enabled via reload).
-     */
-    public void reregisterAntiCheatCommands() {
-        registerAntiCheatCommands();
     }
 
     /**
@@ -105,12 +72,12 @@ public class CommandRegistry {
     private void registerPerformanceCommands() {
         PluginCommand status = plugin.getCommand("perfstatus");
         if (status != null) {
-            status.setExecutor(new PerfStatusCommand(plugin, config, tickSampler, memorySampler));
+            status.setExecutor(new PerfStatusCommand(plugin, monitorService));
         }
 
         PluginCommand history = plugin.getCommand("perfhistory");
         if (history != null) {
-            history.setExecutor(new PerfHistoryCommand(plugin, config, tickSampler, memorySampler, database));
+            history.setExecutor(new PerfHistoryCommand(plugin, monitorService, database));
         }
 
         PluginCommand reload = plugin.getCommand("perfreload");
@@ -131,7 +98,7 @@ public class CommandRegistry {
     }
 
     /**
-     * Register analysis commands (world stats, entity stats, chunk stats, performance drops).
+     * Register analysis commands (world stats, entity stats, chunk stats, incidents).
      */
     private void registerAnalysisCommands() {
         PluginCommand worldstats = plugin.getCommand("worldstats");
@@ -155,95 +122,30 @@ public class CommandRegistry {
             chunkstats.setTabCompleter(csCmd);
         }
 
-        PluginCommand perfdrops = plugin.getCommand("perfdrops");
-        if (perfdrops != null) {
-            PerformanceDropsCommand pdCmd = new PerformanceDropsCommand(plugin, config, dropAnalyzer);
-            perfdrops.setExecutor(pdCmd);
-            perfdrops.setTabCompleter(pdCmd);
+        PluginCommand incidents = plugin.getCommand("perfincidents");
+        if (incidents != null) {
+            PerfIncidentsCommand piCmd = new PerfIncidentsCommand(plugin, incidentAnalyzer);
+            incidents.setExecutor(piCmd);
+            incidents.setTabCompleter(piCmd);
         }
     }
 
     /**
-     * Register GUI command and event listeners.
+     * Register GUI command and the ONE shared GUI listener (no pre-built
+     * throwaway GUI instances anymore).
      */
     private void registerGUICommands() {
+        this.guiManager = new GuiManager(plugin, config, monitorService, incidentAnalyzer,
+                playerActivityTracker, listenerTimings);
+        plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
+
         PluginCommand gui = plugin.getCommand("perfgui");
         if (gui != null) {
-            PerfGUICommand guiCmd = new PerfGUICommand(plugin, config, tickSampler, memorySampler);
-            gui.setExecutor(guiCmd);
-
-            // Register GUI listeners
-            plugin.getServer().getPluginManager().registerEvents(
-                new PerformanceGUI(plugin, config, tickSampler, memorySampler), plugin);
-            plugin.getServer().getPluginManager().registerEvents(
-                new ConfigGUI(plugin, config, null), plugin);
-            plugin.getServer().getPluginManager().registerEvents(
-                new AntiCheatGUI(plugin, config, null), plugin);
-            plugin.getServer().getPluginManager().registerEvents(
-                new LagAnalysisGUI(plugin, config, null, playerActivityTracker, pluginTimingsAnalyzer), plugin);
-            plugin.getServer().getPluginManager().registerEvents(
-                new PerformanceDropsGUI(plugin, config, null, dropAnalyzer), plugin);
-
-            plugin.getLogger().info("Extended GUI pages registered: Lag Analysis & Performance Drops");
+            gui.setExecutor(new PerfGUICommand(plugin, guiManager));
         }
     }
 
-    /**
-     * Register AntiCheat commands (if AntiCheat is enabled).
-     */
-    private void registerAntiCheatCommands() {
-        PluginCommand acwhitelist = plugin.getCommand("acwhitelist");
-        if (acwhitelist != null) {
-            ACWhitelistCommand acwlCmd = new ACWhitelistCommand(plugin, config);
-            acwhitelist.setExecutor(acwlCmd);
-            acwhitelist.setTabCompleter(acwlCmd);
-        }
-
-        PluginCommand xrayalerts = plugin.getCommand("xrayalerts");
-        if (xrayalerts != null) {
-            if (xrayAlertManager != null) {
-                XRayAlertsCommand xraCmd = new XRayAlertsCommand(plugin, xrayAlertManager);
-                xrayalerts.setExecutor(xraCmd);
-                xrayalerts.setTabCompleter(xraCmd);
-            } else {
-                // AntiCheat disabled - show message
-                xrayalerts.setExecutor((sender, cmd, label, args) -> {
-                    sender.sendMessage(lang.get("xray.disabled"));
-                    sender.sendMessage(lang.get("xray.disabled_hint"));
-                    return true;
-                });
-            }
-        }
-
-        PluginCommand xrayores = plugin.getCommand("xrayores");
-        if (xrayores != null) {
-            if (xrayDetector != null) {
-                XRayOresCommand xroCmd = new XRayOresCommand(plugin, config, xrayDetector);
-                xrayores.setExecutor(xroCmd);
-                xrayores.setTabCompleter(xroCmd);
-            } else {
-                xrayores.setExecutor((sender, cmd, label, args) -> {
-                    sender.sendMessage(lang.get("xray.disabled"));
-                    sender.sendMessage(lang.get("xray.disabled_hint"));
-                    return true;
-                });
-            }
-        }
-
-        PluginCommand movealerts = plugin.getCommand("movealerts");
-        if (movealerts != null) {
-            if (movementAlertManager != null) {
-                MoveAlertsCommand mvaCmd = new MoveAlertsCommand(plugin, movementAlertManager);
-                movealerts.setExecutor(mvaCmd);
-                movealerts.setTabCompleter(mvaCmd);
-            } else {
-                // AntiCheat disabled - show message
-                movealerts.setExecutor((sender, cmd, label, args) -> {
-                    sender.sendMessage(lang.get("movement.disabled"));
-                    sender.sendMessage(lang.get("movement.disabled_hint"));
-                    return true;
-                });
-            }
-        }
+    public GuiManager guiManager() {
+        return guiManager;
     }
 }

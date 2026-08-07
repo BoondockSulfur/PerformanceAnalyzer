@@ -24,6 +24,11 @@ public class WorldStatsManager {
     private final Map<String, List<WorldStatsSnapshot>> trendHistory = new ConcurrentHashMap<>();
     private static final int MAX_SNAPSHOTS = 288; // 24 hours @ 5 minutes
 
+    // Latest full per-world stats, cached by the periodic snapshot scheduler so
+    // readers on other threads (REST API) never have to touch Bukkit world APIs.
+    private final Map<String, WorldStats> latestStats = new ConcurrentHashMap<>();
+    private volatile long lastSnapshotAtMs = -1;
+
     public WorldStatsManager(Plugin plugin) {
         this.plugin = plugin;
     }
@@ -120,24 +125,37 @@ public class WorldStatsManager {
 
     /**
      * Get overall server entity statistics.
+     *
+     * <p>Delegates to {@link #aggregate(List)} over one fresh per-world scan.
+     * Callers that already hold a {@link #getAllWorldStats()} result should
+     * pass it to {@link #aggregate(List)} directly instead of calling this —
+     * otherwise every world's tile entities get scanned twice.</p>
      */
     public ServerEntityStats getServerStats() {
+        return aggregate(getAllWorldStats());
+    }
+
+    /**
+     * Aggregate server-wide statistics from already computed per-world stats
+     * without re-scanning any chunks or tile entities.
+     */
+    public ServerEntityStats aggregate(List<WorldStats> worldStats) {
         int totalEntities = 0;
         int totalPlayers = 0;
         int totalChunks = 0;
         int totalTileEntities = 0;
 
-        for (World world : Bukkit.getWorlds()) {
-            totalEntities += world.getEntities().size();
-            totalPlayers += world.getPlayers().size();
-            totalChunks += world.getLoadedChunks().length;
-            totalTileEntities += countTileEntities(world);
+        for (WorldStats stats : worldStats) {
+            totalEntities += stats.entityCount();
+            totalPlayers += stats.playerCount();
+            totalChunks += stats.loadedChunks();
+            totalTileEntities += stats.tileEntityCount();
         }
 
         double avgDensity = totalChunks > 0 ? (double) totalEntities / totalChunks : 0;
 
         return new ServerEntityStats(
-                Bukkit.getWorlds().size(),
+                worldStats.size(),
                 totalEntities,
                 totalPlayers,
                 totalChunks,
@@ -205,6 +223,9 @@ public class WorldStatsManager {
         WorldStats stats = getWorldStats(world);
         String worldName = world.getName();
 
+        latestStats.put(worldName, stats);
+        lastSnapshotAtMs = System.currentTimeMillis();
+
         List<WorldStatsSnapshot> history = trendHistory.computeIfAbsent(
             worldName, k -> Collections.synchronizedList(new ArrayList<>())
         );
@@ -232,6 +253,24 @@ public class WorldStatsManager {
         for (World world : Bukkit.getWorlds()) {
             recordSnapshot(world);
         }
+    }
+
+    /**
+     * Latest cached per-world stats from the last {@link #recordAllSnapshots()}
+     * run, sorted by entity count (highest first). Safe to call from any
+     * thread — reads only the cache and never touches Bukkit APIs. Empty until
+     * the first snapshot ran (and always empty on Folia, where no global world
+     * scan is scheduled).
+     */
+    public List<WorldStats> cachedWorldStats() {
+        List<WorldStats> stats = new ArrayList<>(latestStats.values());
+        stats.sort((a, b) -> Integer.compare(b.entityCount(), a.entityCount()));
+        return stats;
+    }
+
+    /** Timestamp of the last cached snapshot, or -1 when none exists yet. */
+    public long lastSnapshotAtMs() {
+        return lastSnapshotAtMs;
     }
 
     /**

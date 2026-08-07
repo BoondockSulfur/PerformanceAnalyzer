@@ -6,8 +6,14 @@ import com.comphenix.protocol.ProtocolManager;
 import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketEvent;
+import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
+import dev.boondock.performanceanalyzer.alerts.AlertManager;
+import dev.boondock.performanceanalyzer.analysis.Severity;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
+import dev.boondock.performanceanalyzer.lang.LanguageManager;
+import dev.boondock.performanceanalyzer.platform.Scheduling;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 
@@ -20,14 +26,15 @@ public class ProtocolLibHook {
     private final PluginConfig cfg;
     private final ProtocolManager pm;
     private DatabaseManager database;
+    private volatile AlertManager alertManager;
 
     private final AtomicLong packetsThisTick = new AtomicLong(0);
     private final AtomicLong packetsReceived = new AtomicLong(0);
     private final AtomicLong packetsSent = new AtomicLong(0);
     private final AtomicLong totalPackets = new AtomicLong(0);
 
-    private int resetTaskId = -1;
-    private int logTaskId = -1;
+    private ScheduledTask resetTask;
+    private ScheduledTask logTask;
 
     private ProtocolLibHook(Plugin plugin, PluginConfig cfg, ProtocolManager pm) {
         this.plugin = plugin;
@@ -46,32 +53,35 @@ public class ProtocolLibHook {
         return hook;
     }
 
+    /** Wires the alert system; packet floods become real alerts instead of log lines. */
+    public void setAlertManager(AlertManager alertManager) {
+        this.alertManager = alertManager;
+    }
+
+    private LanguageManager lang() {
+        return plugin instanceof PerformanceAnalyzer pa ? pa.lang() : null;
+    }
+
     /**
      * Set database for packet count logging.
      * Cancels previous logging task if exists to prevent memory leak.
      */
     public void setDatabase(DatabaseManager db) {
         // Cancel old logging task if exists (prevents memory leak on reload)
-        if (logTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(logTaskId);
-            logTaskId = -1;
-        }
+        Scheduling.cancel(logTask);
+        logTask = null;
 
         this.database = db;
 
         // Log packet stats every minute
         if (db != null) {
-            this.logTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            this.logTask = Scheduling.runAsyncRepeating(plugin, () -> {
                 if (database != null) {
-                    long total = totalPackets.get();
-                    long recv = packetsReceived.get();
-                    long sent = packetsSent.get();
-
-                    database.logAsync("packets_total", total, "Total packets processed");
-                    database.logAsync("packets_received", recv, "Packets received from clients");
-                    database.logAsync("packets_sent", sent, "Packets sent to clients");
+                    database.logAsync("packets_total", totalPackets.get(), "Total packets processed");
+                    database.logAsync("packets_received", packetsReceived.get(), "Packets received from clients");
+                    database.logAsync("packets_sent", packetsSent.get(), "Packets sent to clients");
                 }
-            }, 1200L, 1200L).getTaskId(); // 60 seconds
+            }, 60_000L, 60_000L);
         }
     }
 
@@ -112,23 +122,32 @@ public class ProtocolLibHook {
             }
         });
 
-        // Check for packet flood (potential lag cause or attack)
-        resetTaskId = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        // Per-tick counter reset + packet flood detection (potential lag cause or attack)
+        resetTask = Scheduling.runGlobalRepeating(plugin, () -> {
             long count = packetsThisTick.getAndSet(0);
 
-            // Warn if packet count exceeds threshold
             double threshold = cfg.packetFloodThreshold();
             if (threshold > 0 && count > threshold) {
-                plugin.getLogger().warning(
-                    String.format("Hohe Paket-Last erkannt: %d Pakete/Tick (Schwellenwert: %.0f)", count, threshold)
-                );
+                Severity severity = count > threshold * 5 ? Severity.CRITICAL : Severity.WARNING;
+                LanguageManager lang = lang();
+                String message = lang != null
+                        ? lang.format("alert.packet_flood", count, threshold)
+                        : String.format("High packet load: %d packets/tick (threshold: %.0f)", count, threshold);
+                AlertManager alerts = this.alertManager;
+                if (alerts != null) {
+                    alerts.sendAlert(AlertManager.AlertType.PACKET_FLOOD, severity, message, count);
+                } else {
+                    plugin.getLogger().warning(message);
+                }
             }
-        }, 1L, 1L).getTaskId();
+        }, 1L, 1L);
     }
 
     public void shutdown() {
-        if (resetTaskId != -1) Bukkit.getScheduler().cancelTask(resetTaskId);
-        if (logTaskId != -1) Bukkit.getScheduler().cancelTask(logTaskId);
+        Scheduling.cancel(resetTask);
+        Scheduling.cancel(logTask);
+        resetTask = null;
+        logTask = null;
         pm.removePacketListeners(plugin);
     }
 
