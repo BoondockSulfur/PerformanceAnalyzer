@@ -55,4 +55,14 @@ public final class Constants {
     public static final int ACTIVITY_WEIGHT_MOVEMENT = 1;
     public static final int ACTIVITY_WEIGHT_COMMAND = 5;
     public static final int ACTIVITY_WEIGHT_INTERACTION = 2;
+
+    // ==================== DOWNLOAD PAGES ====================
+
+    /**
+     * Where an update can be fetched. Both are offered side by side because
+     * admins install from whichever platform they already use.
+     */
+    public static final String URL_MODRINTH = "https://modrinth.com/plugin/performanceanalyzer";
+    public static final String URL_CURSEFORGE =
+            "https://www.curseforge.com/minecraft/bukkit-plugins/performanceanalyzer";
 }

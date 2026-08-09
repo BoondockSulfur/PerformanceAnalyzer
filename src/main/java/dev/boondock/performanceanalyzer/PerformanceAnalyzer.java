@@ -22,7 +22,12 @@ import dev.boondock.performanceanalyzer.metrics.TickTimeSampler;
 import dev.boondock.performanceanalyzer.monitor.MonitorService;
 import dev.boondock.performanceanalyzer.platform.Scheduling;
 import dev.boondock.performanceanalyzer.timing.ListenerTimings;
+import dev.boondock.performanceanalyzer.util.Constants;
 import dev.boondock.performanceanalyzer.util.UpdateChecker;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -60,6 +65,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     private CommandRegistry commandRegistry;
     private CalibrationSampler calibrationSampler;
     private CalibrationEngine calibrationEngine;
+
+    /** Newer version found by the update check; null while up to date. */
+    private volatile String availableVersion;
     private MetricsAPI metricsApi;
     private org.bstats.bukkit.Metrics bstats;
 
@@ -183,14 +191,49 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         UpdateChecker checker = new UpdateChecker(this);
         checker.checkForUpdates().thenAccept(result -> {
             if (result.isUpdateAvailable()) {
+                availableVersion = result.getLatestVersion();
                 getLogger().warning("Update available: " + getDescription().getVersion()
                         + " -> " + result.getLatestVersion()
-                        + " (https://modrinth.com/plugin/performanceanalyzer)");
+                        + "  |  Modrinth: " + Constants.URL_MODRINTH
+                        + "  |  CurseForge: " + Constants.URL_CURSEFORGE);
             } else {
                 getLogger().info("[UpdateChecker] You are running the latest version ("
                         + result.getLatestVersion() + ")");
             }
         }).exceptionally(ex -> null);
+    }
+
+    /**
+     * Tells operators about an update once, when they join.
+     *
+     * <p>The console line above is easy to miss on a server that prints
+     * hundreds of startup lines, and the two download pages are only clickable
+     * in chat. Operators only: everyone else can neither install nor act on it.
+     */
+    @EventHandler
+    public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        String latest = availableVersion;
+        if (latest == null || !event.getPlayer().isOp()) {
+            return;
+        }
+
+        LegacyComponentSerializer legacy = LegacyComponentSerializer.legacySection();
+        Component message = legacy.deserialize(lang.get("update.available",
+                        "%current%", getDescription().getVersion(),
+                        "%latest%", latest))
+                .append(Component.space())
+                .append(downloadLink("update.link_modrinth", Constants.URL_MODRINTH, legacy))
+                .append(Component.space())
+                .append(downloadLink("update.link_curseforge", Constants.URL_CURSEFORGE, legacy));
+
+        event.getPlayer().sendMessage(message);
+    }
+
+    private Component downloadLink(String labelKey, String url, LegacyComponentSerializer legacy) {
+        return legacy.deserialize(lang.get(labelKey))
+                .clickEvent(ClickEvent.openUrl(url))
+                .hoverEvent(HoverEvent.showText(
+                        legacy.deserialize(lang.get("update.link_hover", "%url%", url))));
     }
 
     @Override

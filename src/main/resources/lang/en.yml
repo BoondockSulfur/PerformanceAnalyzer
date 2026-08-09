@@ -361,6 +361,12 @@ severity:
     baseline_elevated: "Avg tick %.1f ms - clearly above this server's normal (%.1f ms)"
     spike: "Single tick spike of %.0f ms"
 
+update:
+  available: "&e[PerformanceAnalyzer] &fUpdate available: &7%current% &f-> &a%latest%"
+  link_modrinth: "&b&l[Modrinth]"
+  link_curseforge: "&6&l[CurseForge]"
+  link_hover: "&7Open &f%url%"
+
 calibrate:
   header: "&b&m-----&r &bThreshold Calibration &b&m-----"
   window: "&7Sampling window: &f%minutes% min"

@@ -361,6 +361,12 @@ severity:
     baseline_elevated: "Ø-Tick %.1f ms – deutlich über dem Normalwert (%.1f ms)"
     spike: "Einzelner Tick-Spike von %.0f ms"
 
+update:
+  available: "&e[PerformanceAnalyzer] &fUpdate verfügbar: &7%current% &f-> &a%latest%"
+  link_modrinth: "&b&l[Modrinth]"
+  link_curseforge: "&6&l[CurseForge]"
+  link_hover: "&7%url% öffnen"
+
 calibrate:
   header: "&b&m-----&r &bSchwellenwert-Kalibrierung &b&m-----"
   window: "&7Beobachtungsfenster: &f%minutes% min"
