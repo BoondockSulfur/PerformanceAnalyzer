@@ -44,6 +44,10 @@ public final class TickTimeSampler implements Listener {
     private static final long EVENT_SILENCE_FALLBACK_NANOS = 5_000_000_000L;
     /** Recorded in interval-fallback mode while the tick deadline is met (true duration unknown). */
     private static final double FALLBACK_HEALTHY_NOMINAL_MS = 5.0;
+    /** Nominal gap between two ticks on a healthy server. */
+    private static final double NOMINAL_TICK_INTERVAL_MS = 50.0;
+    /** Unaccounted main-thread time above this counts as a stall. */
+    private static final double STALL_THRESHOLD_MS = 1_000.0;
 
     private final Plugin plugin;
 
@@ -62,6 +66,17 @@ public final class TickTimeSampler implements Listener {
     private final AtomicLong pendingWorstTickBits = new AtomicLong(Double.doubleToRawLongBits(0.0));
 
     private final AtomicLong lastEventSampleNanos = new AtomicLong();
+
+    // Stalls the tick measurement cannot see. Work that blocks the main
+    // thread *outside* the tick loop - loading or generating a world, for
+    // instance - produces no ServerTickEndEvent at all, so tick durations
+    // stay healthy while TPS collapses. Observed on production: /mv create
+    // froze the server for 4 s and the worst recorded tick was 12 ms, which
+    // left the incident with "no clear cause". The gap between two tick ends
+    // exposes exactly that time, and needs no new instrumentation.
+    private volatile double lastStallMs;
+    private volatile long lastStallAtMs;
+
     private volatile long lastHeartbeatNanos = -1L;
     private volatile long startedAtNanos;
     private ScheduledTask heartbeatTask;
@@ -101,8 +116,33 @@ public final class TickTimeSampler implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onTickEnd(ServerTickEndEvent event) {
         long now = System.nanoTime();
-        lastEventSampleNanos.set(now);
-        record(now, event.getTickDuration());
+        double durationMs = event.getTickDuration();
+        long previousEnd = lastEventSampleNanos.getAndSet(now);
+
+        if (previousEnd > 0) {
+            double intervalMs = (now - previousEnd) / 1_000_000.0;
+            double unaccounted = unaccountedMs(intervalMs, durationMs);
+            if (unaccounted >= STALL_THRESHOLD_MS) {
+                lastStallMs = unaccounted;
+                lastStallAtMs = System.currentTimeMillis();
+            }
+        }
+
+        record(now, durationMs);
+    }
+
+    /**
+     * Main-thread time between two ticks that the tick duration does not
+     * explain.
+     *
+     * <p>A long <em>tick</em> is already visible as its duration - a 7-second
+     * {@code save-all} shows up as a 7-second tick and leaves nothing
+     * unaccounted here. What this catches is the opposite case: the interval
+     * is huge while the tick itself was short, which means the server was
+     * busy somewhere the measurement never ran.
+     */
+    static double unaccountedMs(double intervalMs, double durationMs) {
+        return intervalMs - durationMs - NOMINAL_TICK_INTERVAL_MS;
     }
 
     private void heartbeat() {
@@ -152,6 +192,16 @@ public final class TickTimeSampler implements Listener {
                 return;
             }
         } while (!bits.compareAndSet(current, Double.doubleToRawLongBits(value)));
+    }
+
+    /** Length of the most recent unmeasured stall in ms (0 if none seen). */
+    public double lastStallMs() {
+        return lastStallMs;
+    }
+
+    /** Wall-clock time of the most recent unmeasured stall (0 if none seen). */
+    public long lastStallAtMs() {
+        return lastStallAtMs;
     }
 
     /** Returns and resets the worst spike tick recorded since the last call (0 if none). */

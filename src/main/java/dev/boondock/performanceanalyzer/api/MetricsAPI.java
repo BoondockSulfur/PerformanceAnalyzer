@@ -113,6 +113,18 @@ public final class MetricsAPI {
 
         try {
             server = HttpServer.create(new InetSocketAddress(bind, port), 0);
+        } catch (java.net.BindException e) {
+            // By far the most common setup mistake: the default port 8080 is
+            // already taken by a map plugin (squaremap, dynmap, BlueMap).
+            // "Address already in use" alone sends admins hunting in the
+            // wrong place, so name the cause and the fix.
+            plugin.getLogger().severe("[API] Port " + port + " on " + bind
+                    + " is already in use - the REST API was NOT started.");
+            plugin.getLogger().severe("[API] Another plugin is most likely listening there "
+                    + "(squaremap, dynmap and BlueMap all default to 8080). "
+                    + "Set a free port in config.yml under api.port.");
+            server = null;
+            return false;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "[API] Could not bind " + bind + ":" + port
                     + " - " + e.getMessage());

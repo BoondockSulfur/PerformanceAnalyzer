@@ -76,7 +76,11 @@ lag_analysis:
 
   # ====== Thresholds for Problematic Chunks ======
   # When is a chunk considered "problematic"?
-  # Adjust these values to your server hardware!
+  #
+  # TIP: instead of guessing, run /perfcalibrate after the server has been
+  # under normal load for 30-60 minutes. It derives every threshold below
+  # from what this server actually does, shows the proposal first and only
+  # writes when you confirm with /perfcalibrate apply.
 
   # Tile Entities per Chunk (hoppers, furnaces, chests, etc.)
   # Warning: Too many block entities cause lag
@@ -165,6 +169,16 @@ alerts:
   # Format: "uuid" (all muted) or "uuid:PERFORMANCE" (specific types)
   # Managed via /perfsilent command - do not edit manually
   silent_players: []
+
+  # Stay quiet about incidents caused by a world save.
+  # A scheduled backup runs save-all, which blocks the tick loop for as long
+  # as the worlds need - 7 seconds on a 25 GB install is normal - and is
+  # correctly measured as a severe stall. Alerting on a known, harmless,
+  # nightly event is noise, so the incident is recorded in full (visible in
+  # /perfincidents) but raises no alert.
+  # Set to false if you want to be notified about save stalls too, e.g. while
+  # investigating slow disks.
+  dampen_world_save: true
 
 # GUI Settings
 gui:

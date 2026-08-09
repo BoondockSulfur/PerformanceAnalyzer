@@ -29,6 +29,7 @@ public class ProtocolLibHook {
     private volatile AlertManager alertManager;
 
     private final AtomicLong packetsThisTick = new AtomicLong(0);
+    private final AtomicLong peakPacketsPerTick = new AtomicLong(0);
     private final AtomicLong packetsReceived = new AtomicLong(0);
     private final AtomicLong packetsSent = new AtomicLong(0);
     private final AtomicLong totalPackets = new AtomicLong(0);
@@ -125,6 +126,10 @@ public class ProtocolLibHook {
         // Per-tick counter reset + packet flood detection (potential lag cause or attack)
         resetTask = Scheduling.runGlobalRepeating(plugin, () -> {
             long count = packetsThisTick.getAndSet(0);
+            // Remember the peak so calibration can derive a flood threshold
+            // from real traffic. The database only stores cumulative totals,
+            // whose deltas average the spikes away.
+            peakPacketsPerTick.accumulateAndGet(count, Math::max);
 
             double threshold = cfg.packetFloodThreshold();
             if (threshold > 0 && count > threshold) {
@@ -155,4 +160,7 @@ public class ProtocolLibHook {
     public long getTotalPackets() { return totalPackets.get(); }
     public long getPacketsReceived() { return packetsReceived.get(); }
     public long getPacketsSent() { return packetsSent.get(); }
+
+    /** Highest packets-per-tick observed since the last call, then resets. */
+    public long drainPeakPacketsPerTick() { return peakPacketsPerTick.getAndSet(0L); }
 }

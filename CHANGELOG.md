@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.0] - 2026-08-09
+
+Adds threshold calibration, so a fresh install no longer has to guess the
+values that decide when it complains.
+
+### Added
+- **`/perfcalibrate`** derives threshold values from what the server actually
+  did, shows the proposal and writes nothing until confirmed with
+  `/perfcalibrate apply`. `/perfcalibrate revert` restores the config from
+  before the last run. Only thresholds (plus the measured
+  `startup_grace_seconds`) are written; findings outside that scope — a port
+  already in use, a missing soft dependency — are reported as notes and left
+  alone.
+- **Guard rails against calibrating a bad moment.** The command refuses to run
+  while the server is not OK, while an incident is open, on a sampling window
+  shorter than 30 minutes, when no player was online for the whole window, and
+  when more than a third of the worlds have no chunks loaded. A thinner but
+  real sample only warns. Thresholds do not adjust themselves afterwards:
+  a threshold that follows its own measurements upward lets a slowly degrading
+  server raise its own bar until nothing is ever reported.
+- **Calibration may only relax a threshold, never tighten it** below the
+  shipped default. Its purpose is to stop false alarms, which means raising
+  limits; a tighter limit buys no better detection, only noise — the adaptive
+  half of detection is the learned tick baseline, not these backstops. Found
+  by testing: a 34-minute window on an idle server proposed
+  `spike_tick_ms` 100 → 52 and `world_entity_warning` 5000 → 500, values that
+  would have alerted on ordinary play. The old representativeness check could
+  not catch it either, because on a server that never had players the median
+  player count is 0 and `0 < 0` is false.
+- **New metric series `players_online` and `chunks_loaded`** in the 60-second
+  logging path, sampled from the tick thread. Without them nothing could tell
+  a quiet server from a healthy one after the fact.
+- **`ProtocolLibHook` now records the observed packets-per-tick peak.** The
+  stored packet series are cumulative counters whose per-interval deltas
+  average every spike away.
+- **Stalls outside the tick loop are detected and attributed.** Work that
+  blocks the main thread without completing a tick — loading or generating a
+  world, blocking I/O in a plugin, the host itself freezing — fires no
+  `ServerTickEndEvent`, so tick times stayed healthy while TPS collapsed and
+  the incident ended in "no clear cause". Observed on production: `/mv create`
+  froze the server for 4 s and the worst recorded tick was 12 ms. The gap
+  between two tick ends now exposes exactly that time, needs no new
+  instrumentation, and by construction cannot double-count a long tick: a
+  7-second `save-all` is already its own duration and leaves nothing
+  unaccounted.
+- **`alerts.dampen_world_save`** (default `true`) stops the nightly backup
+  from paging anyone. `save-all` blocks the tick loop for as long as the
+  worlds need — 7 s on a 25 GB install — and is correctly measured as an
+  EMERGENCY-grade stall, but it is scheduled and harmless. The incident is
+  still recorded in full and visible in `/perfincidents`; only the alert is
+  withheld, so the measurement stays honest. Set to `false` while
+  investigating slow disks.
+
+### Fixed
+- **Config migration never added missing keys.** Two independent causes: the
+  whole add-missing-key block sat behind an early `config_version` check, and
+  presence was tested with `contains()`, which counts the jar-embedded
+  defaults and therefore reported every key as present. Both are gone; the
+  migration is idempotent and runs on every start, matching the obsolete-key
+  cleanup. Observed on a production install carrying `config_version: 7` with
+  no `api`, `alerts` or `gui` section at all.
+- **Migration entries added** for `performance.startup_grace_seconds`,
+  `thresholds.spike_tick_ms`, `database.fallback_file_logging`,
+  `database.fallback_log_file` and the four v3.1.0 `discord.alert_types`
+  subkeys, none of which had one.
+- **`ChunkTracker` ignored its configuration.** `chunk_tile_entities_threshold`
+  and `chunk_entity_warning` were hardcoded at 50 and 30, so `/chunkstats
+  problems` answered from constants and the config keys did nothing.
+- **A busy API port now says so.** `BindException` is reported with the likely
+  cause (squaremap, dynmap and BlueMap all default to 8080) instead of a bare
+  "address already in use".
+
+---
+
 ## [3.1.0] - 2026-08-07
 
 Complete rewrite. PerformanceAnalyzer is now a pure performance plugin with an

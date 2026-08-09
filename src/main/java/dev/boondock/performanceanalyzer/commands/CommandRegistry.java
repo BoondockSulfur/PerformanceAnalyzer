@@ -7,6 +7,7 @@ import dev.boondock.performanceanalyzer.analysis.EntityAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.IncidentAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.PlayerActivityTracker;
 import dev.boondock.performanceanalyzer.analysis.WorldStatsManager;
+import dev.boondock.performanceanalyzer.calibrate.CalibrationEngine;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
 import dev.boondock.performanceanalyzer.gui.GuiManager;
@@ -34,6 +35,7 @@ public class CommandRegistry {
     private final IncidentAnalyzer incidentAnalyzer;
     private final PlayerActivityTracker playerActivityTracker;
     private final ListenerTimings listenerTimings;
+    private final CalibrationEngine calibrationEngine;
 
     private GuiManager guiManager;
 
@@ -42,7 +44,9 @@ public class CommandRegistry {
                            WorldStatsManager worldStatsManager, EntityAnalyzer entityAnalyzer,
                            ChunkTracker chunkTracker, IncidentAnalyzer incidentAnalyzer,
                            PlayerActivityTracker playerActivityTracker,
-                           ListenerTimings listenerTimings) {
+                           ListenerTimings listenerTimings,
+                           CalibrationEngine calibrationEngine) {
+        this.calibrationEngine = calibrationEngine;
         this.plugin = plugin;
         this.config = config;
         this.lang = lang;
@@ -94,6 +98,13 @@ public class CommandRegistry {
                 silent.setExecutor(silentCmd);
                 silent.setTabCompleter(silentCmd);
             }
+        }
+
+        PluginCommand calibrate = plugin.getCommand("perfcalibrate");
+        if (calibrate != null && calibrationEngine != null) {
+            PerfCalibrateCommand calCmd = new PerfCalibrateCommand(plugin, calibrationEngine, config);
+            calibrate.setExecutor(calCmd);
+            calibrate.setTabCompleter(calCmd);
         }
     }
 

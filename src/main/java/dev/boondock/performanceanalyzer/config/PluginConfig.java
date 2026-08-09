@@ -4,8 +4,14 @@ import dev.boondock.performanceanalyzer.util.Constants;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class PluginConfig {
 
@@ -60,57 +66,59 @@ public class PluginConfig {
     }
 
     /**
-     * Migrate config - add missing keys from newer versions.
-     * Uses version tracking to avoid unnecessary checks.
+     * Migrate config - add missing keys and drop obsolete ones.
+     *
+     * <p>Both steps are idempotent and run on EVERY start, independent of
+     * {@code config_version}. Gating them on the version number is what broke
+     * production twice: a config stamped with the current version by an
+     * older/experimental build keeps dead sections forever and never receives
+     * keys added later. Observed on production-mc-1, which carried a
+     * {@code config_version: 7} file with no api/alerts/gui blocks at all
+     * because this method returned early.
+     *
+     * <p>Presence is checked with {@code isSet}, never {@code contains}:
+     * {@link org.bukkit.plugin.java.JavaPlugin#getConfig()} attaches the
+     * jar-embedded config.yml as defaults, so {@code contains} reports true
+     * for every key the default file has - which is all of them, making the
+     * add-missing-key branches dead code.
      */
     private void migrateConfig() {
-        // Obsolete-key cleanup runs on EVERY start, independent of
-        // config_version: merging only ever adds keys, and configs stamped
-        // with a matching version by older/experimental builds would keep
-        // dead sections forever (seen with the anticheat block surviving a
-        // 6->7 migration because the removal step was gated on "< 6").
         boolean cleaned = removeObsoleteKeys();
 
         int configVersion = cfg.getInt("config_version", 0);
-
-        // No migration needed if config is up to date
-        if (configVersion >= Constants.CONFIG_VERSION) {
-            if (cleaned) {
-                requestSave();
-                plugin.getLogger().info("[Config] Removed obsolete keys from otherwise up-to-date config");
-            }
-            return;
+        if (configVersion < Constants.CONFIG_VERSION) {
+            plugin.getLogger().info("[Config] Migrating config from version " + configVersion
+                    + " to " + Constants.CONFIG_VERSION);
         }
 
-        plugin.getLogger().info("[Config] Migrating config from version " + configVersion + " to " + Constants.CONFIG_VERSION);
         boolean changed = false;
 
         // v1.2.3 - Language setting
-        if (!cfg.contains("language")) {
+        if (!cfg.isSet("language")) {
             cfg.set("language", "en");
             changed = true;
             plugin.getLogger().info("[Config] New entry added: language (default: en)");
         }
 
         // v1.2.2 - Debug mode
-        if (!cfg.contains("performance.debug_mode")) {
+        if (!cfg.isSet("performance.debug_mode")) {
             cfg.set("performance.debug_mode", false);
             changed = true;
             plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: performance.debug_mode");
         }
 
         // v1.2.0 - Discord settings
-        if (!cfg.contains("discord.enabled")) {
+        if (!cfg.isSet("discord.enabled")) {
             cfg.set("discord.enabled", false);
             changed = true;
             plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.enabled");
         }
-        if (!cfg.contains("discord.webhook_url")) {
+        if (!cfg.isSet("discord.webhook_url")) {
             cfg.set("discord.webhook_url", "");
             changed = true;
             plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.webhook_url");
         }
-        if (!cfg.contains("discord.alert_types")) {
+        if (!cfg.isSet("discord.alert_types")) {
             cfg.set("discord.alert_types.high_mspt", true);
             cfg.set("discord.alert_types.tps_drop", true);
             cfg.set("discord.alert_types.high_heap", true);
@@ -120,106 +128,150 @@ public class PluginConfig {
         }
 
         // v2.0.0 - Lag Analysis settings (performance optimization)
-        if (!cfg.contains("lag_analysis.player_tracking")) {
+        if (!cfg.isSet("lag_analysis.player_tracking")) {
             cfg.set("lag_analysis.player_tracking", true);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: lag_analysis.player_tracking");
         }
-        if (!cfg.contains("lag_analysis.plugin_analysis")) {
+        if (!cfg.isSet("lag_analysis.plugin_analysis")) {
             cfg.set("lag_analysis.plugin_analysis", true);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: lag_analysis.plugin_analysis");
         }
-        if (!cfg.contains("lag_analysis.chunk_analysis_timeout_ms")) {
+        if (!cfg.isSet("lag_analysis.chunk_analysis_timeout_ms")) {
             cfg.set("lag_analysis.chunk_analysis_timeout_ms", 5000);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: lag_analysis.chunk_analysis_timeout_ms");
         }
 
         // v2.0.0 - Lag Analysis Thresholds (configurable)
-        if (!cfg.contains("lag_analysis.chunk_tile_entities_threshold")) {
+        if (!cfg.isSet("lag_analysis.chunk_tile_entities_threshold")) {
             cfg.set("lag_analysis.chunk_tile_entities_threshold", 10);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.chunk_redstone_threshold")) {
+        if (!cfg.isSet("lag_analysis.chunk_redstone_threshold")) {
             cfg.set("lag_analysis.chunk_redstone_threshold", 30);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.chunk_entity_warning")) {
+        if (!cfg.isSet("lag_analysis.chunk_entity_warning")) {
             cfg.set("lag_analysis.chunk_entity_warning", 50);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.chunk_entity_critical")) {
+        if (!cfg.isSet("lag_analysis.chunk_entity_critical")) {
             cfg.set("lag_analysis.chunk_entity_critical", 100);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.world_entity_warning")) {
+        if (!cfg.isSet("lag_analysis.world_entity_warning")) {
             cfg.set("lag_analysis.world_entity_warning", 5000);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.world_entity_critical")) {
+        if (!cfg.isSet("lag_analysis.world_entity_critical")) {
             cfg.set("lag_analysis.world_entity_critical", 10000);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.plugin_risk_low")) {
+        if (!cfg.isSet("lag_analysis.plugin_risk_low")) {
             cfg.set("lag_analysis.plugin_risk_low", 50);
             changed = true;
         }
-        if (!cfg.contains("lag_analysis.plugin_risk_medium")) {
+        if (!cfg.isSet("lag_analysis.plugin_risk_medium")) {
             cfg.set("lag_analysis.plugin_risk_medium", 100);
             changed = true;
         }
 
         // v2.2.1 - Database auto-cleanup
-        if (!cfg.contains("database.retention_days")) {
+        if (!cfg.isSet("database.retention_days")) {
             cfg.set("database.retention_days", 30);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: database.retention_days");
         }
 
         // v2.2.1 - GUI auto-refresh
-        if (!cfg.contains("gui.auto_refresh")) {
+        if (!cfg.isSet("gui.auto_refresh")) {
             cfg.set("gui.auto_refresh", true);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: gui.auto_refresh");
         }
 
         // v2.2.1 - REST API
-        if (!cfg.contains("api.enabled")) {
+        if (!cfg.isSet("api.enabled")) {
             cfg.set("api.enabled", false);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: api.enabled");
         }
-        if (!cfg.contains("api.port")) {
+        if (!cfg.isSet("api.port")) {
             cfg.set("api.port", 8080);
             changed = true;
             plugin.getLogger().info("[Config] New entry added: api.port");
         }
-        if (!cfg.contains("api.key")) {
+        if (!cfg.isSet("api.key")) {
             cfg.set("api.key", "");
             changed = true;
             plugin.getLogger().info("[Config] New entry added: api.key (IMPORTANT: set a strong key before enabling the API!)");
         }
 
         // v3.1.0 (config_version 7) - REST API bind address (localhost-only default)
-        if (!cfg.contains("api.bind")) {
+        if (!cfg.isSet("api.bind")) {
             cfg.set("api.bind", "127.0.0.1");
             changed = true;
             plugin.getLogger().info("[Config] New entry added: api.bind (default: 127.0.0.1)");
         }
 
         // v2.3.1 - Silent mode / Streamer mode
-        if (!cfg.contains("alerts.silent_players")) {
+        if (!cfg.isSet("alerts.silent_players")) {
             cfg.set("alerts.silent_players", new ArrayList<String>());
             changed = true;
             plugin.getLogger().info("[Config] New entry added: alerts.silent_players");
         }
 
-        // Update config version if changes were made
+        // v3.1.0 - keys that shipped in the default config.yml but never had a
+        // migration branch, so existing installs silently ran on jar defaults.
+        if (!cfg.isSet("performance.startup_grace_seconds")) {
+            cfg.set("performance.startup_grace_seconds", 60);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: performance.startup_grace_seconds");
+        }
+        if (!cfg.isSet("thresholds.spike_tick_ms")) {
+            cfg.set("thresholds.spike_tick_ms", 100.0);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: thresholds.spike_tick_ms");
+        }
+        if (!cfg.isSet("database.fallback_file_logging")) {
+            cfg.set("database.fallback_file_logging", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: database.fallback_file_logging");
+        }
+        if (!cfg.isSet("alerts.dampen_world_save")) {
+            cfg.set("alerts.dampen_world_save", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.dampen_world_save");
+        }
+        if (!cfg.isSet("database.fallback_log_file")) {
+            cfg.set("database.fallback_log_file", "plugins/PerformanceAnalyzer/fallback.log");
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: database.fallback_log_file");
+        }
+
+        // The alert_types block above is only created when absent as a whole -
+        // configs that already carry it never received the v3.1.0 incident
+        // types, so each subkey is checked individually.
+        for (String alertType : new String[]{
+                "incident_opened", "incident_escalated", "incident_resolved", "performance"}) {
+            String path = "discord.alert_types." + alertType;
+            if (!cfg.isSet(path)) {
+                cfg.set(path, true);
+                changed = true;
+                plugin.getLogger().info("[Config] New entry added: " + path);
+            }
+        }
+
         if (changed || cleaned || configVersion < Constants.CONFIG_VERSION) {
             cfg.set("config_version", Constants.CONFIG_VERSION);
             requestSave();
-            plugin.getLogger().info("[Config] Config migrated to version " + Constants.CONFIG_VERSION);
+            if (configVersion < Constants.CONFIG_VERSION) {
+                plugin.getLogger().info("[Config] Config migrated to version " + Constants.CONFIG_VERSION);
+            } else {
+                plugin.getLogger().info("[Config] Config updated (missing/obsolete keys fixed)");
+            }
         }
     }
 
@@ -403,6 +455,17 @@ public class PluginConfig {
         return path != null && !path.isEmpty() ? path : "plugins/PerformanceAnalyzer/fallback.log";
     }
 
+    /**
+     * Whether incidents attributed to a world save alert at all.
+     *
+     * <p>A scheduled backup blocks the tick loop for as long as the worlds
+     * need and is measured as a genuine stall - but it is known, harmless and
+     * happens every night. Default is to record it and stay quiet.
+     */
+    public boolean dampenWorldSaveAlerts() {
+        return cfg.getBoolean("alerts.dampen_world_save", true);
+    }
+
     // Silent mode (persistent alert preferences)
     public List<String> silentPlayers() {
         return cfg.getStringList("alerts.silent_players");
@@ -416,6 +479,77 @@ public class PluginConfig {
     private void requestSave() {
         dirty = true;
         asyncSaver.saveAsync();
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Calibration support                                                 */
+    /* ------------------------------------------------------------------ */
+
+    /** File name of the backup written before calibrated values are applied. */
+    public static final String CALIBRATION_BACKUP = "config.yml.pre-calibrate";
+
+    /**
+     * Copies the current config.yml aside so a calibration can be undone.
+     * Overwrites an older backup - only the most recent calibration is
+     * revertible, which is what {@code /perfcalibrate revert} promises.
+     *
+     * @return true when a backup exists afterwards
+     */
+    public boolean backupForCalibration() {
+        File source = new File(plugin.getDataFolder(), "config.yml");
+        if (!source.isFile()) {
+            return false;
+        }
+        try {
+            Files.copy(source.toPath(),
+                    new File(plugin.getDataFolder(), CALIBRATION_BACKUP).toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (IOException e) {
+            plugin.getLogger().warning("[Config] Could not write calibration backup: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** True when a revertible calibration backup is present. */
+    public boolean hasCalibrationBackup() {
+        return new File(plugin.getDataFolder(), CALIBRATION_BACKUP).isFile();
+    }
+
+    /**
+     * Restores the pre-calibration config.yml. The caller is responsible for
+     * reloading afterwards.
+     *
+     * @return true on success
+     */
+    public boolean restoreCalibrationBackup() {
+        File backup = new File(plugin.getDataFolder(), CALIBRATION_BACKUP);
+        if (!backup.isFile()) {
+            return false;
+        }
+        try {
+            Files.copy(backup.toPath(),
+                    new File(plugin.getDataFolder(), "config.yml").toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+            // The in-memory copy is stale now; drop the dirty flag so the
+            // shutdown save cannot write it back over the restored file.
+            dirty = false;
+            return true;
+        } catch (IOException e) {
+            plugin.getLogger().warning("[Config] Could not restore calibration backup: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Writes calibrated values and flushes them to disk.
+     *
+     * @return future completing once config.yml has been written
+     */
+    public CompletableFuture<Void> applyCalibration(Map<String, Object> values) {
+        values.forEach(cfg::set);
+        dirty = true;
+        return asyncSaver.saveAsync();
     }
 
     /**

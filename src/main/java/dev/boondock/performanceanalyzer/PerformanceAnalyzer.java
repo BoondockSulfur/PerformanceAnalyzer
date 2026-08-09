@@ -9,6 +9,8 @@ import dev.boondock.performanceanalyzer.analysis.IncidentAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.PlayerActivityTracker;
 import dev.boondock.performanceanalyzer.analysis.WorldStatsManager;
 import dev.boondock.performanceanalyzer.api.MetricsAPI;
+import dev.boondock.performanceanalyzer.calibrate.CalibrationEngine;
+import dev.boondock.performanceanalyzer.calibrate.CalibrationSampler;
 import dev.boondock.performanceanalyzer.commands.CommandRegistry;
 import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.db.DatabaseManager;
@@ -56,6 +58,8 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     private SparkHook sparkHook;
 
     private CommandRegistry commandRegistry;
+    private CalibrationSampler calibrationSampler;
+    private CalibrationEngine calibrationEngine;
     private MetricsAPI metricsApi;
     private org.bstats.bukkit.Metrics bstats;
 
@@ -96,7 +100,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         // Exact-data analyzers
         this.worldStatsManager = new WorldStatsManager(this);
         this.entityAnalyzer = new EntityAnalyzer(this, configAdapter);
-        this.chunkTracker = new ChunkTracker(this);
+        this.chunkTracker = new ChunkTracker(this, configAdapter);
         getServer().getPluginManager().registerEvents(chunkTracker, this);
 
         this.playerActivityTracker = new PlayerActivityTracker(this, configAdapter);
@@ -114,8 +118,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         }
 
         this.incidentAnalyzer = new IncidentAnalyzer(this, lang, activityCounters,
-                chunkTracker, entityAnalyzer, database);
+                chunkTracker, entityAnalyzer, database, configAdapter);
         this.incidentAnalyzer.setListenerTimings(listenerTimings);
+        this.incidentAnalyzer.setTickSampler(tickTimeSampler);
         this.incidentAnalyzer.setListener(alertManager);
         // WorldSaveEvent marker for save-stall attribution
         getServer().getPluginManager().registerEvents(incidentAnalyzer, this);
@@ -144,9 +149,17 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(this, this);
 
+        // Calibration: the sampler runs from startup so /perfcalibrate has a
+        // window to work with whenever an admin gets around to running it.
+        this.calibrationSampler = new CalibrationSampler(this);
+        this.calibrationSampler.setPacketSource(protocolLibHook);
+        this.calibrationSampler.start();
+        this.calibrationEngine = new CalibrationEngine(this, configAdapter, lang, monitorService,
+                incidentAnalyzer, database, calibrationSampler);
+
         this.commandRegistry = new CommandRegistry(this, configAdapter, lang, monitorService,
                 database, worldStatsManager, entityAnalyzer, chunkTracker, incidentAnalyzer,
-                playerActivityTracker, listenerTimings);
+                playerActivityTracker, listenerTimings, calibrationEngine);
         commandRegistry.registerAll();
 
         // REST API (off by default; binds to 127.0.0.1 unless configured otherwise)
@@ -184,6 +197,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     public void onDisable() {
         if (bstats != null) bstats.shutdown();
         if (metricsApi != null) metricsApi.stop();
+        if (calibrationSampler != null) calibrationSampler.stop();
         if (monitorService != null) monitorService.stop();
         if (listenerTimings != null) listenerTimings.stop();
         if (activityCounters != null) activityCounters.stop();
@@ -225,6 +239,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         if (tickTimeSampler != null && monitorService != null) {
             tickTimeSampler.onSpike(configAdapter.spikeTickMs(),
                     worstTickMs -> monitorService.evaluateNow());
+        }
+        if (chunkTracker != null) {
+            chunkTracker.refreshThresholds();
         }
         getLogger().info("Plugin configuration reloaded successfully.");
     }

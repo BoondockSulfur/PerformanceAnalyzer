@@ -11,6 +11,8 @@ import dev.boondock.performanceanalyzer.metrics.TickStats;
 import dev.boondock.performanceanalyzer.metrics.TickTimeSampler;
 import dev.boondock.performanceanalyzer.platform.Scheduling;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
 
 /**
@@ -42,6 +44,16 @@ public final class MonitorService {
     private volatile long graceMs;
     private long armedAtMs;
     private ScheduledTask loopTask;
+
+    // Sampled on the main thread (see start()); -1 means "not sampled yet".
+    // chunks_loaded stays -1 on Folia, where walking every world's chunk
+    // array from one thread is illegal - the series is simply absent there.
+    private volatile int playersSnapshot = -1;
+    private volatile int loadedChunksSnapshot = -1;
+    private ScheduledTask loadSamplerTask;
+
+    /** Milliseconds from start() to the first OK assessment; -1 until then. */
+    private volatile long millisToFirstOk = -1;
 
     public MonitorService(Plugin plugin, TickTimeSampler tickSampler, GcSampler gcSampler,
                           IncidentAnalyzer incidentAnalyzer) {
@@ -76,11 +88,31 @@ public final class MonitorService {
         stop();
         armedAtMs = System.currentTimeMillis();
         loopTask = Scheduling.runAsyncRepeating(plugin, this::evaluate, 1_000L, 1_000L);
+        // Load context has to be read from the tick thread, so it is sampled
+        // here every 10 s and only consumed by the async logging step.
+        loadSamplerTask = Scheduling.runGlobalRepeating(plugin, this::sampleLoadContext, 20L, 20L * 10);
     }
 
     public void stop() {
         Scheduling.cancel(loopTask);
         loopTask = null;
+        Scheduling.cancel(loadSamplerTask);
+        loadSamplerTask = null;
+    }
+
+    private void sampleLoadContext() {
+        try {
+            playersSnapshot = Bukkit.getOnlinePlayers().size();
+            if (!Scheduling.FOLIA) {
+                int loaded = 0;
+                for (World world : Bukkit.getWorlds()) {
+                    loaded += world.getLoadedChunks().length;
+                }
+                loadedChunksSnapshot = loaded;
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("[Monitor] load context sampling failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -113,6 +145,12 @@ public final class MonitorService {
             // in the villager load test: baseline crept 4.4 -> 9.0 ms).
             if (ticks.hasData() && result.severity() == Severity.OK) {
                 baseline.update(ticks.msptAvg10s(), ticks.msptP95());
+                if (millisToFirstOk < 0) {
+                    // How long this server needs to settle after a start.
+                    // Guessing that number is what makes startup_grace_seconds
+                    // wrong on most installs; measuring it is trivial.
+                    millisToFirstOk = System.currentTimeMillis() - armedAtMs;
+                }
             }
 
             // During the startup grace period metrics are shown but no
@@ -146,6 +184,20 @@ public final class MonitorService {
                 db.logAsync("oldgen_after_gc", gc.oldGenAfterGcPercent(), null);
             }
         }
+
+        // Load context. Without these two series nothing can tell a quiet
+        // server from a healthy one after the fact - which is exactly what
+        // /perfcalibrate needs to judge whether a sample is representative.
+        // Both values come from the main-thread sampler; this method runs
+        // async and must not touch world state itself.
+        int players = playersSnapshot;
+        if (players >= 0) {
+            db.logAsync("players_online", players, null);
+        }
+        int chunks = loadedChunksSnapshot;
+        if (chunks >= 0) {
+            db.logAsync("chunks_loaded", chunks, null);
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -166,5 +218,19 @@ public final class MonitorService {
 
     public Baseline baseline() {
         return baseline;
+    }
+
+    /**
+     * How long this server took to reach a healthy state after the last
+     * start, in milliseconds; -1 while it never has. Basis for a measured
+     * {@code startup_grace_seconds} instead of a guessed one.
+     */
+    public long millisToFirstOk() {
+        return millisToFirstOk;
+    }
+
+    /** Loaded chunks across all worlds, -1 when unsampled (Folia). */
+    public int loadedChunks() {
+        return loadedChunksSnapshot;
     }
 }

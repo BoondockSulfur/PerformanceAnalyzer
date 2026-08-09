@@ -4,6 +4,7 @@ import dev.boondock.performanceanalyzer.db.DatabaseManager;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
 import dev.boondock.performanceanalyzer.metrics.GcSampler;
 import dev.boondock.performanceanalyzer.metrics.TickStats;
+import dev.boondock.performanceanalyzer.metrics.TickTimeSampler;
 import dev.boondock.performanceanalyzer.platform.Scheduling;
 import dev.boondock.performanceanalyzer.timing.ListenerTimings;
 import org.bukkit.plugin.Plugin;
@@ -48,6 +49,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private static final long FINDINGS_REFRESH_MS = 5_000L;
     /** How long after a WorldSaveEvent a stall is attributed to the save. */
     private static final long WORLD_SAVE_ATTRIBUTION_MS = 12_000L;
+    private static final long STALL_ATTRIBUTION_MS = 12_000L;
 
     private final Plugin plugin;
     private final LanguageManager lang;
@@ -55,9 +57,11 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private final ChunkTracker chunkTracker;
     private final EntityAnalyzer entityAnalyzer;
     private final DatabaseManager database;
+    private final dev.boondock.performanceanalyzer.config.PluginConfig config;
 
     private ListenerTimings listenerTimings;
     private Listener listener;
+    private TickTimeSampler tickSampler;
 
     private final ArrayDeque<Incident> incidents = new ArrayDeque<>();
     private final AtomicLong nextId = new AtomicLong(1);
@@ -72,13 +76,20 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
 
     public IncidentAnalyzer(Plugin plugin, LanguageManager lang, ActivityCounters activity,
                             ChunkTracker chunkTracker, EntityAnalyzer entityAnalyzer,
-                            DatabaseManager database) {
+                            DatabaseManager database,
+                            dev.boondock.performanceanalyzer.config.PluginConfig config) {
         this.plugin = plugin;
         this.lang = lang;
         this.activity = activity;
         this.chunkTracker = chunkTracker;
         this.entityAnalyzer = entityAnalyzer;
         this.database = database;
+        this.config = config;
+    }
+
+    /** Optional; without it no unmeasured-stall attribution is produced. */
+    public void setTickSampler(TickTimeSampler tickSampler) {
+        this.tickSampler = tickSampler;
     }
 
     public void setListenerTimings(ListenerTimings listenerTimings) {
@@ -123,7 +134,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         if (escalated) {
             refreshFindings(current, ticks, gc, now);
             Listener l = listener;
-            if (l != null) {
+            if (l != null && !alertDampened(current)) {
                 l.incidentEscalated(current);
             }
         }
@@ -159,7 +170,13 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         }
         Listener l = listener;
         if (l != null) {
-            l.incidentOpened(incident);
+            if (alertDampened(incident)) {
+                plugin.getLogger().info("[Incident] #" + incident.id()
+                        + " attributed to a world save - recorded, alert suppressed"
+                        + " (alerts.dampen_world_save).");
+            } else {
+                l.incidentOpened(incident);
+            }
         }
     }
 
@@ -174,7 +191,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                             incident.worstTickMs(), incident.lowestTps()));
         }
         Listener l = listener;
-        if (l != null) {
+        if (l != null && !alertDampened(incident)) {
             l.incidentResolved(incident);
         }
     }
@@ -182,6 +199,25 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     /* ------------------------------------------------------------------ */
     /* Findings                                                            */
     /* ------------------------------------------------------------------ */
+
+    /**
+     * True when this incident is the scheduled world save and alerting for it
+     * is dampened.
+     *
+     * <p>A nightly backup runs {@code save-all flush}, which blocks the tick
+     * loop for as long as the worlds need (7 s on a 25 GB install) and is
+     * correctly measured as an EMERGENCY-grade stall. Paging someone for a
+     * known, harmless, scheduled event is noise. The incident is still
+     * recorded in full - only the alert is withheld, so the measurement stays
+     * honest and the history stays complete.
+     */
+    private boolean alertDampened(Incident incident) {
+        if (config == null || !config.dampenWorldSaveAlerts()) {
+            return false;
+        }
+        List<Finding> findings = incident.findings();
+        return !findings.isEmpty() && findings.get(0).type() == Finding.Type.WORLD_SAVE;
+    }
 
     private void refreshFindings(Incident incident, TickStats ticks, GcSampler.GcStats gc, long now) {
         lastFindingsRefreshMs = now;
@@ -295,7 +331,26 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
 
         findings.sort(Comparator.comparingInt((Finding f) -> f.severity().level()).reversed());
 
-        // 7. World save attribution: if a save happened just before this
+        // 7. Unmeasured stall: the main thread was blocked outside the tick
+        // loop, so none of the instrumented sources above could have seen it.
+        // Pinned high because it explains the one case that otherwise ends in
+        // "no clear cause" — a healthy worst tick next to collapsed TPS.
+        TickTimeSampler sampler = this.tickSampler;
+        if (sampler != null) {
+            long sinceStallMs = System.currentTimeMillis() - sampler.lastStallAtMs();
+            if (sampler.lastStallAtMs() > 0 && sinceStallMs <= STALL_ATTRIBUTION_MS) {
+                double stallSeconds = sampler.lastStallMs() / 1000.0;
+                Severity severity = stallSeconds >= 5 ? Severity.CRITICAL : Severity.WARNING;
+                findings.add(0, Finding.global(Finding.Type.UNMEASURED_STALL, severity,
+                        Finding.Confidence.MEASURED,
+                        lang.format("finding.stall.title"),
+                        lang.format("finding.stall.detail", stallSeconds, sinceStallMs / 1000),
+                        lang.format("finding.stall.recommendation"),
+                        stallSeconds));
+            }
+        }
+
+        // 8. World save attribution: if a save happened just before this
         // evaluation, it is by far the most likely cause of a short stall —
         // pin it to the top regardless of its (deliberately low) severity.
         long sinceSaveMs = System.currentTimeMillis() - lastWorldSaveAtMs;

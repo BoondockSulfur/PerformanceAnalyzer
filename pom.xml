@@ -5,7 +5,7 @@
 
   <groupId>dev.boondock</groupId>
   <artifactId>performance-analyzer</artifactId>
-  <version>3.1.0</version>
+  <version>3.2.0</version>
   <name>PerformanceAnalyzer</name>
   <description>Performance Analyzer for Paper/Folia 1.21.x with GUI, Discord and REST API</description>
   <url>https://github.com/yourusername/PerformanceAnalyzer</url>

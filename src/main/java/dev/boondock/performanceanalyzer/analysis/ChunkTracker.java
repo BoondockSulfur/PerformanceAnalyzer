@@ -1,5 +1,6 @@
 package dev.boondock.performanceanalyzer.analysis;
 
+import dev.boondock.performanceanalyzer.config.PluginConfig;
 import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -34,16 +35,28 @@ public class ChunkTracker implements Listener {
     private final AtomicLong totalUnloads = new AtomicLong(0);
     private final AtomicInteger loadsThisMinute = new AtomicInteger(0);
 
-    // Slow chunk threshold (chunks that might cause lag)
-    private static final int TILE_ENTITY_WARNING = 50;
-    private static final int ENTITY_WARNING = 30;
+    private final PluginConfig config;
 
-    public ChunkTracker(Plugin plugin) {
+    // Thresholds for "this chunk might cost us time". Cached instead of read
+    // per event: onChunkLoad is a hot path (observed ~1400 loads/minute on a
+    // pregenerating server). Refreshed via refreshThresholds() on /perfreload.
+    private volatile int tileEntityWarning;
+    private volatile int entityWarning;
+
+    public ChunkTracker(Plugin plugin, PluginConfig config) {
         this.plugin = plugin;
+        this.config = config;
+        refreshThresholds();
 
         // Reset per-minute counter every minute (counters are concurrent,
         // so this can run off the tick threads)
         Scheduling.runAsyncRepeating(plugin, () -> loadsThisMinute.set(0), 60_000L, 60_000L);
+    }
+
+    /** Re-reads the chunk thresholds from the config (called on reload). */
+    public void refreshThresholds() {
+        this.tileEntityWarning = config.chunkTileEntitiesThreshold();
+        this.entityWarning = config.chunkEntityWarning();
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -62,7 +75,7 @@ public class ChunkTracker implements Listener {
         int tileEntities = chunk.getTileEntities().length;
         int entities = chunk.getEntities().length;
 
-        if (tileEntities >= TILE_ENTITY_WARNING || entities >= ENTITY_WARNING) {
+        if (tileEntities >= tileEntityWarning || entities >= entityWarning) {
             String key = worldName + ":" + chunk.getX() + "," + chunk.getZ();
             chunkLoadHistory.computeIfAbsent(key, k -> new ChunkLoadStats(
                     worldName, chunk.getX(), chunk.getZ()
@@ -118,8 +131,8 @@ public class ChunkTracker implements Listener {
                 int tileEntities = chunk.getTileEntities().length;
                 int entities = chunk.getEntities().length;
 
-                if (tileEntities >= TILE_ENTITY_WARNING || entities >= ENTITY_WARNING) {
-                    ChunkProblemType type = tileEntities >= TILE_ENTITY_WARNING
+                if (tileEntities >= tileEntityWarning || entities >= entityWarning) {
+                    ChunkProblemType type = tileEntities >= tileEntityWarning
                             ? ChunkProblemType.HIGH_TILE_ENTITIES
                             : ChunkProblemType.HIGH_ENTITIES;
 

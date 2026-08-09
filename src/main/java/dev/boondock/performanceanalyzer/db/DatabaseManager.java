@@ -365,6 +365,69 @@ public class DatabaseManager {
     }
 
     /**
+     * Number of stored samples for one metric series within the window.
+     *
+     * @param logType  metric series, e.g. "players_online"
+     * @param daysBack time window in days
+     * @return row count, 0 when the series does not exist yet
+     */
+    public int countByType(String logType, int daysBack) {
+        String sql = "SELECT COUNT(*) AS c FROM performance_logs " +
+                     "WHERE log_type = ? AND " + getTimeSinceSQL(TimeUnit.DAY);
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, logType);
+            ps.setInt(2, daysBack);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("c");
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("Query error (countByType): " + e.getMessage());
+        }
+        return 0;
+    }
+
+    /**
+     * Value at the given percentile of one metric series.
+     *
+     * <p>Used by the calibration command to derive thresholds from what the
+     * server actually did instead of from guessed defaults. Ordering plus
+     * LIMIT/OFFSET works on both SQLite and MySQL, so no vendor-specific
+     * window functions are needed.
+     *
+     * @param logType    metric series
+     * @param percentile 0.0 - 1.0 (0.99 = p99), clamped
+     * @param daysBack   time window in days
+     * @return the value, or {@link Double#NaN} when the series has no rows
+     */
+    public double getPercentileByType(String logType, double percentile, int daysBack) {
+        int count = countByType(logType, daysBack);
+        if (count <= 0) {
+            return Double.NaN;
+        }
+        double p = Math.min(1.0, Math.max(0.0, percentile));
+        int offset = (int) Math.floor(p * (count - 1));
+
+        String sql = "SELECT value FROM performance_logs " +
+                     "WHERE log_type = ? AND " + getTimeSinceSQL(TimeUnit.DAY) +
+                     " ORDER BY value ASC LIMIT 1 OFFSET ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, logType);
+            ps.setInt(2, daysBack);
+            ps.setInt(3, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getDouble("value");
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("Query error (getPercentileByType): " + e.getMessage());
+        }
+        return Double.NaN;
+    }
+
+    /**
      * Clean up old data to prevent database bloat.
      * @param daysToKeep How many days of data to retain
      */
