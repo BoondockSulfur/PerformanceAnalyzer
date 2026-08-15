@@ -34,7 +34,7 @@ If you exported v2.x MSPT values to dashboards, expect the numbers to drop drama
 - 🧠 **Adaptive baseline** — the server learns its own normal tick time; a server that idles at 5 ms alerts far earlier than one that idles at 30 ms
 - 🚦 **Documented severity model** — OK / NOTICE / WARNING / CRITICAL / EMERGENCY with a transparent 0–100 score (see below)
 - 🔍 **Incident engine** — incidents open, escalate and resolve as a lifecycle (with duration and a "resolved" notification), instead of one-shot "drop" spam
-- 🧾 **Findings with confidence** — every attributed cause is labeled **MEASURED** or **HEURISTIC**, checked in order: world save/backup → GC → plugin listeners → hot chunks → chunk generation/churn → entity hotspots. Tick stalls right after a `WorldSaveEvent` (autosave, backup `save-all`) are attributed to the save instead of showing up as "no clear cause"
+- 🧾 **Findings with confidence** — every attributed cause is labeled **MEASURED** or **HEURISTIC**, checked in order: world save/backup → expensive command → GC → plugin listeners → hot chunks → chunk generation/churn → entity hotspots → player arrival. The three things that used to end in "no clear cause" because they happen *outside* the instrumented paths now name themselves: a `save-all` from a backup, an operator command that does a world's worth of work in one tick (`//paste`, `/mv create`), and a player arriving somewhere unloaded (login or far teleport). Findings are titled by what is actually happening — "Heavy redstone/piston activity in world at 192, 48", not "high activity chunk"
 - ♻️ **GC monitoring** — GC pause deltas, old-gen occupancy *after* collection (the only honest memory-pressure signal), metaspace
 - ⚡ **Single-tick spike detection** — one tick above `thresholds.spike_tick_ms` triggers immediate analysis
 - 🔥 **Per-chunk activity rates** — redstone firings, piston movements, hopper item moves, spawns, chunk loads/gens per second in 10 s windows (what *fires*, not what merely exists)
@@ -89,11 +89,32 @@ about your performance numbers). Opt out globally for all plugins in
 | `/entitystats [world\|hotspots]` | `es` | Entity analysis | `performance.admin` | op |
 | `/chunkstats [problems\|frequent\|clear]` | `cs` | Chunk statistics | `performance.admin` | op |
 | `/perfsilent [all\|performance\|list]` | `ps`, `silent` | Toggle alert notifications (streamer mode) | `performance.admin` | op |
-| `/perfreload` | – | Reload configuration | `performance.admin` | op |
+| `/perfcalibrate [apply\|revert]` | – | Derive thresholds from what this server actually did | `performance.admin` | op |
+| `/perfreload` | – | Reload configuration, including the packet-analysis, listener-timing and REST-API switches | `performance.admin` | op |
 
 Additional permission: `performance.alerts` (default op) — receives in-game incident alerts.
 
 `/perfdrops` from v2.x still works as an alias of `/perfincidents`.
+
+### Threshold calibration
+
+`/perfcalibrate` proposes threshold values derived from measurements and writes
+nothing until you confirm with `/perfcalibrate apply`; `/perfcalibrate revert`
+restores the config from before the last run. Findings outside that scope — a
+port already in use, a missing soft dependency — are reported as notes and left
+alone.
+
+It refuses to run on a sample that cannot describe normal operation: while the
+server is not OK, while an incident is open, on a window shorter than 30
+minutes, or when no player was online for the whole window. Idle worlds are
+only a warning — on most servers nobody is in the nether, and vetoing the run
+over that would also discard the values that have nothing to do with worlds.
+
+**Calibration can only ever relax a threshold, never tighten one.** Proposals
+are floored at `max(shipped default, value in effect today)`. The second half
+matters: an admin who raised a limit did so because this server needed the
+room, usually after being alerted too often, and that knowledge is in no sample
+the plugin can take.
 
 ---
 
@@ -104,10 +125,24 @@ Severity levels are derived from measured values against hard limits **plus** de
 | Level | Meaning |
 |-------|---------|
 | **OK** | Everything within normal bounds |
-| **NOTICE** | Noticeable but harmless (e.g. a single ≥150 ms tick spike, or clearly above the learned normal) |
-| **WARNING** | Players can start to feel it (p95 ≥ 50 ms, avg ≥ 35 ms, GC ≥ 3 s/min or a ≥200 ms pause, or avg more than 2× the learned normal) |
+| **NOTICE** | Measurable but harmless — a single ≥150 ms tick spike, a tail past the deadline that costs no tick rate, or an average above the learned normal while still under 25 ms. Recorded, never alerted |
+| **WARNING** | The server is not keeping up: **TPS < 19**, avg ≥ 35 ms, GC ≥ 3 s/min or a ≥200 ms pause, or avg more than 2× the learned normal *and* ≥ 25 ms |
 | **CRITICAL** | 20 TPS no longer holdable (avg ≥ 50 ms or TPS < 17, or old-gen ≥ 90 % after GC) |
 | **EMERGENCY** | Severely degraded (TPS < 10 or avg ≥ 100 ms) |
+
+**A WARNING has to hold before it becomes an incident.** Short rough patches are
+a server doing work — chunks loading behind a player who just logged in, a
+redstone burst, a pasted schematic — and they cost no tick rate worth
+mentioning. A WARNING therefore has to persist for
+`alerts.warning_sustain_seconds` (default 30) before an incident opens.
+CRITICAL and above skip the wait entirely: at that point the server is already
+failing. Incidents are dated from when the trouble started, not from when the
+wait expired, and carry the peaks measured during it.
+
+Note what is deliberately *not* a WARNING: a p95 past the 50 ms deadline while
+the tick rate holds. Measured on a live server at p95 51.3 ms and 19.9 TPS —
+one tick in twenty a hair late, nothing anyone can feel. A tail that matters
+drags the rate down with it and is caught by the TPS bound.
 
 The **0–100 score** is a weighted sum: up to **45 points** sustained load (avg MSPT vs. the 50 ms deadline), up to **30 points** tail latency (p95 vs. 100 ms), up to **25 points** GC pressure (GC time per minute + old-gen occupancy after GC). The formula lives in `analysis/SeverityModel.java` and is deliberately simple enough to reason about.
 
@@ -174,6 +209,20 @@ discord:
 
 alerts:
   silent_players: []     # managed via /perfsilent - do not edit manually
+  dampen_world_save: true      # record save stalls, do not page anyone for them
+  warning_sustain_seconds: 30  # how long a WARNING must hold; 0 = report at once
+                               # CRITICAL and above ignore this
+
+attribution:
+  # Commands that can block the server for a whole tick. An incident starting
+  # within 15 s of one of these names it as the likely cause instead of ending
+  # in "no clear cause". Matched against the start of the command without its
+  # leading slash, so "/" covers every WorldEdit command.
+  # Keep the list short: anything here can collect the blame for a stall it
+  # merely overlapped.
+  expensive_commands: ["/", "mv create", "mv delete", "mv regen",
+                       "mvcreate", "mvdelete", "mvregen",
+                       "chunky start", "chunky continue"]
 
 gui:
   auto_refresh: true

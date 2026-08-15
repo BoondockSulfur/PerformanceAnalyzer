@@ -24,8 +24,22 @@ public class ChunkTracker implements Listener {
 
     private final Plugin plugin;
 
+    /**
+     * Upper bound for {@link #chunkLoadHistory}.
+     *
+     * <p>Entries are created for every heavy chunk ever loaded and nothing
+     * removed them, so on a long-running server that explores or pregenerates
+     * the map grew for as long as the server ran. {@code ActivityCounters}
+     * caps the same kind of per-chunk map at 4096; this one had no bound at
+     * all.
+     */
+    private static final int MAX_TRACKED_CHUNKS = 4096;
+
     // Track chunk load times (approximation via event timing)
     private final Map<String, ChunkLoadStats> chunkLoadHistory = new ConcurrentHashMap<>();
+    /** Heavy chunks not tracked because the history was full. */
+    private final java.util.concurrent.atomic.LongAdder overflowedChunks =
+            new java.util.concurrent.atomic.LongAdder();
 
     // Track per-world chunk statistics
     private final Map<String, WorldChunkStats> worldStats = new ConcurrentHashMap<>();
@@ -77,9 +91,21 @@ public class ChunkTracker implements Listener {
 
         if (tileEntities >= tileEntityWarning || entities >= entityWarning) {
             String key = worldName + ":" + chunk.getX() + "," + chunk.getZ();
-            chunkLoadHistory.computeIfAbsent(key, k -> new ChunkLoadStats(
-                    worldName, chunk.getX(), chunk.getZ()
-            )).recordLoad(tileEntities, entities);
+            ChunkLoadStats existing = chunkLoadHistory.get(key);
+            if (existing != null) {
+                existing.recordLoad(tileEntities, entities);
+            } else if (chunkLoadHistory.size() < MAX_TRACKED_CHUNKS) {
+                chunkLoadHistory.computeIfAbsent(key, k -> new ChunkLoadStats(
+                        worldName, chunk.getX(), chunk.getZ()
+                )).recordLoad(tileEntities, entities);
+            } else {
+                // Full: keep counting the chunks already known instead of
+                // trading them for new ones. Churn is what this history is for,
+                // and a chunk only qualifies by being loaded repeatedly - an
+                // eviction policy would throw away exactly the entries that
+                // are about to become interesting.
+                overflowedChunks.increment();
+            }
         }
     }
 
@@ -208,6 +234,12 @@ public class ChunkTracker implements Listener {
         worldStats.clear();
         totalLoads.set(0);
         totalUnloads.set(0);
+        overflowedChunks.reset();
+    }
+
+    /** Heavy chunks skipped because the history had reached its cap. */
+    public long overflowedChunks() {
+        return overflowedChunks.sum();
     }
 
     // Helper classes

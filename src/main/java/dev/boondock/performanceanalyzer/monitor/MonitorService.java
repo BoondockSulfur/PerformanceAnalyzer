@@ -233,4 +233,14 @@ public final class MonitorService {
     public int loadedChunks() {
         return loadedChunksSnapshot;
     }
+
+    /**
+     * Players online at the last main-thread sample, -1 before the first one.
+     *
+     * <p>Exists so async consumers do not have to call {@code
+     * Bukkit.getOnlinePlayers()} off the tick thread just to learn this.
+     */
+    public int onlinePlayers() {
+        return playersSnapshot;
+    }
 }

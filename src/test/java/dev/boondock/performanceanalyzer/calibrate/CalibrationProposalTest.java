@@ -55,6 +55,24 @@ class CalibrationProposalTest {
     }
 
     @Test
+    void unloadedWorldsDoNotVetoTheRest() {
+        // Regression: empty worlds used to be a blocker once more than a third
+        // of them had no loaded chunks, which also discarded spike_tick_ms and
+        // startup_grace_seconds - values that have nothing to do with worlds.
+        // An idle nether is the normal state of a server, not a broken sample;
+        // it is a warning plus a note, and the run stays applicable.
+        CalibrationProposal proposal = new CalibrationProposal(
+                List.of(value("thresholds.spike_tick_ms", 100.0, 140.0)),
+                List.of(),
+                List.of("6 of 9 worlds had no chunks loaded"),
+                List.of("world entity thresholds were left untouched"),
+                60);
+
+        assertTrue(proposal.canApply(), "unloaded worlds must not veto the run");
+        assertEquals(1, proposal.changedValues().size());
+    }
+
+    @Test
     void nothingToChangeMeansNothingToApply() {
         CalibrationProposal noop = new CalibrationProposal(
                 List.of(value("a", 7, 7)), List.of(), List.of(), List.of(), 60);

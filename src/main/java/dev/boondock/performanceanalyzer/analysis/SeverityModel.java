@@ -31,6 +31,45 @@ public final class SeverityModel {
         public static final Assessment OK = new Assessment(Severity.OK, 0, List.of());
     }
 
+    /**
+     * Absolute load a baseline deviation must also reach before it counts as
+     * a WARNING instead of a NOTICE.
+     *
+     * <p>Deviation alone says nothing about whether anyone suffers. A server
+     * that idles at 3.5 ms sees the first player who logs in as a fourfold
+     * jump, and {@code normal * 2 + 10} is crossed by ordinary play. Measured
+     * on production: 17 WARNING incidents in eight days, every one of them at
+     * 14–19.5 ms average tick with TPS never below 19.8, each coinciding with
+     * one or two players being online. Seventeen pages for "somebody is
+     * playing".
+     *
+     * <p>25 ms is half the 50 ms deadline - the point where the server has
+     * spent half its budget and a further doubling really would hurt. Below
+     * that the deviation is still reported, as a NOTICE, which records it
+     * without opening an incident.
+     *
+     * <p>Deliberately the average only. A tail arm at p95 ≥ 35 ms let exactly
+     * the case back in that this gate exists for: on rattenkolonie, which
+     * idles at 0.2 ms, a player logging in produced avg 11.1 ms with a p95
+     * between 35 and 50 ms - five seconds of chunk loading, TPS 19.6 - and
+     * opened a WARNING incident. A tail that genuinely hurts is already a
+     * WARNING through the absolute {@code p95 >= 50} rule above, so the arm
+     * bought no detection and only reinstated the noise.
+     */
+    static final double BASELINE_WARNING_MIN_AVG_MS = 25.0;
+
+    /**
+     * Tick rate below which a WARNING is justified on its own.
+     *
+     * <p>TPS is the one number that describes what players get: below 19 the
+     * server is measurably not keeping up. The tail on its own no longer
+     * warns. {@code p95 >= 50} used to, and it fired on production at p95
+     * 51.3 ms while the tick rate sat at 19.9 - one tick in twenty a hair
+     * past the deadline, nothing anyone could feel. A tail that matters drags
+     * the rate down with it and is caught here; one that does not is a NOTICE.
+     */
+    static final double WARNING_TPS = 19.0;
+
     private SeverityModel() {
     }
 
@@ -73,7 +112,10 @@ public final class SeverityModel {
         } else if (avg >= 50.0 || tps < 17.0) {
             severity = Severity.CRITICAL;
             reasons.add(reason(lang, "severity.reason.critical", "Cannot hold 20 TPS: avg tick %.1f ms, TPS %.1f", avg, tps));
-        } else if (p95 >= 50.0 || avg >= 35.0) {
+        } else if (tps < WARNING_TPS) {
+            severity = Severity.WARNING;
+            reasons.add(reason(lang, "severity.reason.warning_tps", "Tick rate down to %.1f TPS (avg tick %.1f ms)", tps, avg));
+        } else if (avg >= 35.0) {
             severity = Severity.WARNING;
             reasons.add(reason(lang, "severity.reason.warning", "Noticeable stutter: p95 tick %.1f ms, avg %.1f ms", p95, avg));
         }
@@ -93,8 +135,13 @@ public final class SeverityModel {
         if (baseline != null && baseline.isEstablished() && severity.level() < Severity.WARNING.level()) {
             double normal = baseline.avgMspt();
             if (avg > normal * 2.0 + 10.0) {
-                severity = max(severity, Severity.WARNING);
-                reasons.add(reason(lang, "severity.reason.baseline_double", "Avg tick %.1f ms - more than double this server's normal (%.1f ms)", avg, normal));
+                if (avg >= BASELINE_WARNING_MIN_AVG_MS) {
+                    severity = max(severity, Severity.WARNING);
+                    reasons.add(reason(lang, "severity.reason.baseline_double", "Avg tick %.1f ms - more than double this server's normal (%.1f ms)", avg, normal));
+                } else {
+                    severity = max(severity, Severity.NOTICE);
+                    reasons.add(reason(lang, "severity.reason.baseline_double_quiet", "Avg tick %.1f ms - more than double this server's normal (%.1f ms), but still far below the 50 ms deadline", avg, normal));
+                }
             } else if (avg > normal * 1.5 + 5.0) {
                 severity = max(severity, Severity.NOTICE);
                 reasons.add(reason(lang, "severity.reason.baseline_elevated", "Avg tick %.1f ms - clearly above this server's normal (%.1f ms)", avg, normal));

@@ -121,9 +121,12 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.gcSampler = new GcSampler(this);
         this.activityCounters = new ActivityCounters(this);
 
-        if (configAdapter.lagAnalysisPluginAnalysis()) {
-            this.listenerTimings = new ListenerTimings(this);
-        }
+        // Always constructed, started only when enabled: every consumer
+        // (CommandRegistry, GuiManager, MetricsAPI) takes the reference once at
+        // construction, so a null here could never become non-null again and
+        // toggling the setting would have needed a full server restart.
+        // ListenerTimings.isActive() carries the on/off state instead.
+        this.listenerTimings = new ListenerTimings(this);
 
         this.incidentAnalyzer = new IncidentAnalyzer(this, lang, activityCounters,
                 chunkTracker, entityAnalyzer, database, configAdapter);
@@ -143,7 +146,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.tickTimeSampler.start();
         this.gcSampler.start();
         this.activityCounters.start();
-        if (this.listenerTimings != null) {
+        if (configAdapter.lagAnalysisPluginAnalysis()) {
             this.listenerTimings.start();
         }
         this.monitorService.start();
@@ -268,8 +271,10 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     }
 
     /**
-     * Reload plugin configuration without full restart. Does not restart any
-     * tasks — the v2.x reload leaked one metric/alert task per invocation.
+     * Reload plugin configuration without full restart. Does not restart the
+     * measurement core — the v2.x reload leaked one metric/alert task per
+     * invocation — but it does apply every setting the config GUI offers,
+     * which is what "takes effect after restart or /perfreload" promises.
      */
     public void reloadPlugin() {
         getLogger().info("Reloading plugin configuration...");
@@ -278,6 +283,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         lang.setLanguage(configAdapter.language());
         if (monitorService != null) {
             monitorService.setDatabase(database, configAdapter.logIntervalSeconds());
+            monitorService.setStartupGraceSeconds(configAdapter.startupGraceSeconds());
         }
         if (tickTimeSampler != null && monitorService != null) {
             tickTimeSampler.onSpike(configAdapter.spikeTickMs(),
@@ -286,7 +292,68 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         if (chunkTracker != null) {
             chunkTracker.refreshThresholds();
         }
+        applyListenerTimingsSetting();
+        applyPacketAnalysisSetting();
+        applyApiSetting();
         getLogger().info("Plugin configuration reloaded successfully.");
+    }
+
+    /** Starts or stops listener timing injection to match the config. */
+    private void applyListenerTimingsSetting() {
+        if (listenerTimings == null) {
+            return;
+        }
+        boolean wanted = configAdapter.lagAnalysisPluginAnalysis();
+        if (wanted && !listenerTimings.isActive()) {
+            listenerTimings.start();
+            getLogger().info("[Reload] Listener timings enabled.");
+        } else if (!wanted && listenerTimings.isActive()) {
+            listenerTimings.stop();
+            getLogger().info("[Reload] Listener timings disabled.");
+        }
+    }
+
+    /**
+     * Hooks or unhooks ProtocolLib. The presence check has to stay in front of
+     * every reference to {@link ProtocolLibHook}: loading that class resolves
+     * ProtocolLib types and throws NoClassDefFoundError when it is absent.
+     */
+    private void applyPacketAnalysisSetting() {
+        boolean wanted = configAdapter.packetAnalysisEnabled()
+                && getServer().getPluginManager().getPlugin("ProtocolLib") != null;
+        if (wanted && protocolLibHook == null) {
+            this.protocolLibHook = ProtocolLibHook.tryHook(this, configAdapter);
+            if (this.protocolLibHook != null) {
+                this.protocolLibHook.setDatabase(database);
+                this.protocolLibHook.setAlertManager(alertManager);
+                if (calibrationSampler != null) {
+                    calibrationSampler.setPacketSource(protocolLibHook);
+                }
+                getLogger().info("[Reload] Packet analysis enabled.");
+            }
+        } else if (!wanted && protocolLibHook != null) {
+            protocolLibHook.shutdown();
+            protocolLibHook = null;
+            if (calibrationSampler != null) {
+                calibrationSampler.setPacketSource(null);
+            }
+            getLogger().info("[Reload] Packet analysis disabled.");
+        }
+    }
+
+    /** Starts or stops the REST API to match the config. */
+    private void applyApiSetting() {
+        boolean wanted = configAdapter.apiEnabled();
+        if (wanted && metricsApi == null) {
+            this.metricsApi = new MetricsAPI(this, configAdapter, monitorService,
+                    incidentAnalyzer, activityCounters, listenerTimings,
+                    worldStatsManager, database);
+            this.metricsApi.start();
+        } else if (!wanted && metricsApi != null) {
+            metricsApi.stop();
+            metricsApi = null;
+            getLogger().info("[Reload] REST API stopped.");
+        }
     }
 
     /* Accessors */

@@ -235,7 +235,25 @@ public final class ActivityCounters implements Listener {
     /* Window rotation (async)                                             */
     /* ------------------------------------------------------------------ */
 
-    private void rotateWindow() {
+    /**
+     * Closes the current window immediately so its counts become visible.
+     *
+     * <p>{@link #hotChunks()} only ever shows the last <em>completed</em>
+     * window, so when an incident opens the newest data can be up to
+     * {@code WINDOW_MS} old — and a lag source that just started is not in it
+     * at all. That is the "it takes a while before it says what the cause is"
+     * effect: the first report names whatever was busy before the trouble, or
+     * nothing.
+     *
+     * <p>Rotating early is safe because the rates divide by the window's real
+     * elapsed time rather than by a constant; a short window under-reports
+     * slightly (the divisor is floored at one second) but never invents load.
+     */
+    public void rotateNow() {
+        rotateWindow();
+    }
+
+    private synchronized void rotateWindow() {
         ConcurrentHashMap<ChunkAddress, Window> finished = current.getAndSet(new ConcurrentHashMap<>());
         long now = System.currentTimeMillis();
         double seconds = Math.max(1.0, (now - windowStartedAtMs) / 1000.0);

@@ -317,13 +317,13 @@ finding:
     detail: "&7Measured: &f%.1f ms/s&7 (%.1f%% of one thread), heaviest event: &f%s&7 (%.1f ms/s)"
     recommendation: "Check the configuration of '%s', update it, or profile it with spark to pinpoint the hot path."
   hotchunk:
-    title: "High activity chunk in %s at %d, %d"
+    title: "%s in %s at %d, %d"
     detail: "&7Dominant: &f%s&7 — hoppers: &f%.1f/s&7, redstone: &f%.1f/s&7, spawns: &f%.1f/s"
     recommendation: "Inspect the area (world %s, around x=%d z=%d): hopper clocks, item farms and always-on redstone are typical culprits."
     kind:
-      hopper: "hopper item traffic"
-      redstone: "redstone/piston activity"
-      spawns: "mob spawning"
+      hopper: "Heavy hopper item traffic"
+      redstone: "Heavy redstone/piston activity"
+      spawns: "Heavy mob spawning"
   chunkgen:
     title: "Heavy chunk generation"
     detail: "&7New chunks are being generated at &f%.1f/s&7 (exploration or world border expansion)"
@@ -340,6 +340,15 @@ finding:
     title: "World save / backup in progress"
     detail: "&7World '%s' was saved %d s before this evaluation - saves pause the tick loop briefly"
     recommendation: "Routine saves are harmless. If this fires often or stalls long, check your backup schedule and disk speed."
+  command:
+    title: "Expensive command executed"
+    detail: "&7'%s' by %s, %d s before this evaluation - such commands do all of their work inside one tick"
+    recommendation: "If the command was intended, the stall is expected. Large WorldEdit operations can be spread out with FastAsyncWorldEdit; create worlds while the server is empty."
+  arrival:
+    title: "Player arrival loading chunks"
+    detail_teleport: "&7Long jump to '%s' %d s before this evaluation - the destination has to be read from disk or generated"
+    detail_join: "&7Player login in '%s' %d s before this evaluation - the area around their logout point has to be loaded"
+    recommendation: "Single arrivals are normal. If they cluster in one place, pre-generate the area (Chunky) or keep it loaded as spawn chunks."
   stall:
     title: "Server frozen outside the tick loop"
     detail: "&7The main thread was blocked for %.1f s (%d s ago) without a single tick completing - so tick times look healthy while TPS collapsed"
@@ -355,9 +364,11 @@ severity:
     emergency: "Server running at %.1f TPS (avg tick %.1f ms)"
     critical: "Cannot hold 20 TPS: avg tick %.1f ms, TPS %.1f"
     warning: "Noticeable stutter: p95 tick %.1f ms, avg %.1f ms"
+    warning_tps: "Tick rate down to %.1f TPS (avg tick %.1f ms)"
     memory: "Old gen still at %.0f%% after GC - real memory pressure"
     gc: "GC load: %d ms in 60 s, longest pause ~%.0f ms"
     baseline_double: "Avg tick %.1f ms - more than double this server's normal (%.1f ms)"
+    baseline_double_quiet: "Avg tick %.1f ms - more than double this server's normal (%.1f ms), but still far below the 50 ms deadline"
     baseline_elevated: "Avg tick %.1f ms - clearly above this server's normal (%.1f ms)"
     spike: "Single tick spike of %.0f ms"
 
@@ -396,10 +407,9 @@ calibrate:
     window: "Not enough data: only %minutes% min observed, %needed% min required."
     window_hint: "Let the server run under normal load for at least 30-60 minutes - ideally while players are online - then run /perfcalibrate again."
     idle: "No player was online during the whole sampling window. Thresholds derived from an idle server would alert on ordinary play - run this again while your server is actually in use."
-    empty_worlds: "%empty% of %total% worlds have no chunks loaded, so most of your content was never measured. Run this again while your worlds are in use."
   warn:
     quiet: "Only %players% player(s) online, the %days%-day median is %median%. This sample is quieter than normal and thresholds would come out too tight."
-    empty_worlds: "%empty% of %total% worlds currently have no chunks loaded."
+    empty_worlds: "%empty% of %total% worlds had no chunks loaded and were not measured. The chunk and world thresholds describe the remaining %measured%."
     no_history: "No player history yet, so representativeness cannot be judged. The series starts filling from now on."
   reason:
     spike: "baseline %baseline% ms x %factor%"
@@ -411,9 +421,12 @@ calibrate:
     world_entity: "p95 entities per world (%p95%) x 1.5"
     world_crit: "warning x 1.6"
     grace: "measured %seconds% s until healthy after start x 1.5"
+    floored: "the sample only suggests %measured% - calibration never goes below the value already configured, so the proposal stays there"
   note:
     port_in_use: "api.port %port% is already in use on %bind%. Pick a free port before enabling the API."
     no_protocollib: "ProtocolLib is not installed - packet_analysis has no effect and no packet threshold was derived."
     no_spark: "spark is not installed - incident reports cannot suggest a profiler run."
     citizens: "Citizens detected - NPCs count as entities, so the proposed chunk thresholds include them."
     folia: "Folia: per-chunk sampling is unavailable, so chunk and world thresholds were left untouched."
+    thin_chunk_data: "Only %count% of the %needed% chunk observations needed were collected, so the chunk thresholds were left untouched. Everything else in this proposal is unaffected."
+    no_world_data: "No world had a loaded chunk during the whole window, so the world entity thresholds were left untouched. Everything else in this proposal is unaffected."

@@ -78,10 +78,12 @@ class SeverityModelTest {
     }
 
     @Test
-    void warningOnP95AtFiftyMs() {
+    void p95AtFiftyMsAloneIsNoLongerAWarning() {
+        // Was a WARNING until the tick rate became the deciding number. A p95
+        // of 50 ms at 19.8 TPS is a fifth of a tick over the deadline once in
+        // twenty ticks - measurable, not noticeable.
         SeverityModel.Assessment a = SeverityModel.evaluate(ticks(20, 50, 70, 19.8), GC_QUIET, null);
-        assertEquals(Severity.WARNING, a.severity());
-        assertFalse(a.reasons().isEmpty());
+        assertFalse(a.severity().atLeast(Severity.WARNING));
     }
 
     @Test
@@ -169,6 +171,82 @@ class SeverityModelTest {
         // 14 ms > 5*1.5+5 = 12.5 ms but <= 5*2+10 = 20 ms.
         SeverityModel.Assessment a = SeverityModel.evaluate(ticks(14, 18, 40, 19.9), GC_QUIET, baseline);
         assertEquals(Severity.NOTICE, a.severity());
+    }
+
+    @Test
+    void deviationOnAnIdleServerStaysBelowIncidentLevel() {
+        // Production, eight days, seventeen times: a server idling at 3.5 ms
+        // gets one player, the average goes to 18 ms, TPS never leaves 19.9 -
+        // and every one of those opened a WARNING incident. Above normal, yes;
+        // worth waking someone for, no. NOTICE records it without opening one.
+        Baseline baseline = establishedBaseline(3.5, 5.1);
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(18, 24, 82, 19.9), GC_QUIET, baseline);
+
+        assertEquals(Severity.NOTICE, a.severity());
+        assertFalse(a.severity().atLeast(Severity.WARNING), "must not open an incident");
+        assertFalse(a.reasons().isEmpty(), "the deviation is still reported");
+    }
+
+    @Test
+    void deviationBecomesWarningOnceHalfTheBudgetIsGone() {
+        // Same server, but now genuinely loaded: 26 ms is past half the 50 ms
+        // deadline, so a further doubling really would break 20 TPS.
+        Baseline baseline = establishedBaseline(3.5, 5.1);
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(26, 30, 90, 19.6), GC_QUIET, baseline);
+
+        assertEquals(Severity.WARNING, a.severity());
+    }
+
+    @Test
+    void aTailPastTheDeadlineWithIntactTickRateIsNoWarning() {
+        // production, measured: p95 51.3 ms at 19.9 TPS, average 17.7 ms — one
+        // tick in twenty a hair past the deadline while the server kept its
+        // rate. p95 >= 50 used to warn on its own; the number that describes
+        // what players get is the tick rate.
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(17.7, 51.3, 64, 19.9), GC_QUIET, null);
+
+        assertFalse(a.severity().atLeast(Severity.WARNING),
+                "an intact tick rate is not a warning, was " + a.severity());
+    }
+
+    @Test
+    void aDroppingTickRateIsAWarningOnItsOwn() {
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(30, 45, 90, 18.4), GC_QUIET, null);
+
+        assertEquals(Severity.WARNING, a.severity());
+        // Not the formatted number: the fallback goes through String.format
+        // with the default locale, so the separator is a comma in German.
+        assertTrue(a.reasons().get(0).contains("TPS"), "the reason names the rate");
+    }
+
+    @Test
+    void theTickRateBoundSitsJustBelowNineteen() {
+        assertEquals(Severity.OK, SeverityModel.evaluate(ticks(10, 20, 40, 19.0), GC_QUIET, null).severity());
+        assertEquals(Severity.WARNING, SeverityModel.evaluate(ticks(10, 20, 40, 18.9), GC_QUIET, null).severity());
+    }
+
+    @Test
+    void aBurstyTailAloneStaysBelowIncidentLevel() {
+        // rattenkolonie, measured: idling at 0.2 ms, a player logs in, five
+        // seconds of chunk loading give avg 11.1 ms and a p95 between 35 and
+        // 50 ms, TPS 19.6. A p95 arm in the deviation gate turned exactly this
+        // into a WARNING incident; a tail that genuinely hurts is covered by
+        // the absolute p95 >= 50 rule instead.
+        Baseline baseline = establishedBaseline(0.2, 0.4);
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(11.1, 40, 154, 19.6), GC_QUIET, baseline);
+
+        assertEquals(Severity.NOTICE, a.severity());
+    }
+
+    @Test
+    void aTailThatCostsTickRateIsAWarning() {
+        // The same login burst, but this time it actually costs the server its
+        // rate. That is the difference the tick-rate bound draws: not how long
+        // the worst ticks were, but whether the server kept up.
+        Baseline baseline = establishedBaseline(0.2, 0.4);
+        SeverityModel.Assessment a = SeverityModel.evaluate(ticks(11.1, 55, 154, 18.2), GC_QUIET, baseline);
+
+        assertEquals(Severity.WARNING, a.severity());
     }
 
     @Test

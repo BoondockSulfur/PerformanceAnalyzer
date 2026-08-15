@@ -180,6 +180,45 @@ alerts:
   # investigating slow disks.
   dampen_world_save: true
 
+  # How many seconds a WARNING has to hold before it opens an incident.
+  #
+  # A short rough patch is not a problem, it is a server doing work: chunks
+  # loading behind a player who just logged in, a redstone burst, a pasted
+  # schematic. Those last a handful of seconds and never cost tick rate worth
+  # mentioning - measured at 19.7 and 19.9 TPS - and reporting them buries the
+  # incidents that matter.
+  #
+  # CRITICAL and EMERGENCY ignore this and are reported at once: below 17 TPS
+  # or at a 50 ms average the server is already failing.
+  #
+  # The incident is dated from when the trouble started, not from when this
+  # wait expired, so durations stay honest. Set to 0 to report immediately.
+  warning_sustain_seconds: 30
+
+# Cause attribution
+attribution:
+  # Commands that can block the server for a whole tick. When an incident
+  # starts within 15 seconds of one of these, it is named as the likely cause
+  # instead of the report ending in "no clear cause".
+  #
+  # Matched case-insensitively against the start of the command, without its
+  # leading slash - so "/" matches every WorldEdit command (//paste, //replace)
+  # and "mv create" matches "/mv create Testworld normal".
+  #
+  # Keep this list short. Anything listed here can collect the blame for a
+  # stall it merely happened to overlap, so only add commands that really are
+  # capable of freezing the server.
+  expensive_commands:
+    - "/"
+    - "mv create"
+    - "mv delete"
+    - "mv regen"
+    - "mvcreate"
+    - "mvdelete"
+    - "mvregen"
+    - "chunky start"
+    - "chunky continue"
+
 # GUI Settings
 gui:
   # Automatically refresh open GUI pages

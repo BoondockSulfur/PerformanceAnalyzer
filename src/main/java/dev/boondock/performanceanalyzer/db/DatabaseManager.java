@@ -161,9 +161,25 @@ public class DatabaseManager {
         queue.add(new LogEntry(type, value, description));
     }
 
-    private void flushBatchSafe() {
+    /**
+     * Writes one batch and reports how many entries it handled, so callers can
+     * drain the queue completely.
+     *
+     * <p>The batch is taken out of the queue before it is written, so from
+     * that moment this method is the only thing holding those measurements: if
+     * the write fails and they are not put somewhere, they are gone. They used
+     * to be - the failure path only rescued what was still queued, so the
+     * first batch after a database outage was silently dropped.
+     *
+     * @return number of entries written to the database or the fallback file
+     */
+    private int flushBatchSafe() {
+        List<LogEntry> batch = drainBatch();
+        if (batch.isEmpty()) {
+            return 0;
+        }
         try {
-            flushBatch();
+            writeBatch(batch);
             // Reset failure counter on success
             if (consecutiveFailures > 0) {
                 consecutiveFailures = 0;
@@ -172,6 +188,7 @@ public class DatabaseManager {
                     databaseAvailable = true;
                 }
             }
+            return batch.size();
         } catch (Exception e) {
             consecutiveFailures++;
             plugin.getLogger().warning("DB flush failed (attempt " + consecutiveFailures + "): " + e.getMessage());
@@ -183,26 +200,51 @@ public class DatabaseManager {
                 databaseAvailable = false;
             }
 
-            // Log to fallback if available
-            if (fallbackLogger != null && !databaseAvailable) {
-                List<LogEntry> failedEntries = new ArrayList<>(queue);
-                for (LogEntry entry : failedEntries) {
-                    fallbackLogger.log(entry.type(), entry.value(), entry.description());
-                }
-                queue.clear();
-                plugin.getLogger().info("Logged " + failedEntries.size() + " entries to fallback file");
+            if (fallbackLogger == null) {
+                plugin.getLogger().warning("[Database] " + batch.size()
+                        + " entries lost - no fallback file configured"
+                        + " (database.fallback_file_logging).");
+                return 0;
             }
+            // Rescue this batch first, then whatever else has piled up.
+            int written = 0;
+            for (LogEntry entry : batch) {
+                fallbackLogger.log(entry.type(), entry.value(), entry.description());
+                written++;
+            }
+            LogEntry queued;
+            while ((queued = queue.poll()) != null) {
+                fallbackLogger.log(queued.type(), queued.value(), queued.description());
+                written++;
+            }
+            plugin.getLogger().info("Logged " + written + " entries to fallback file");
+            return written;
         }
     }
 
-    private void flushBatch() throws SQLException {
-        List<LogEntry> batch = new ArrayList<>();
-        LogEntry e;
-        while ((e = queue.poll()) != null && batch.size() < Constants.DB_MAX_BATCH_SIZE) {
+    /**
+     * Takes up to {@link Constants#DB_MAX_BATCH_SIZE} entries out of the queue.
+     *
+     * <p>The size check comes before the poll on purpose. The other order -
+     * {@code (e = queue.poll()) != null && batch.size() < MAX} - removes an
+     * entry and then discovers the batch is full, discarding exactly one
+     * measurement on every capped flush.
+     */
+    private List<LogEntry> drainBatch() {
+        return drain(queue, Constants.DB_MAX_BATCH_SIZE);
+    }
+
+    /** Package-private and static so the off-by-one above stays under test. */
+    static <T> List<T> drain(java.util.Queue<T> queue, int max) {
+        List<T> batch = new ArrayList<>();
+        T e;
+        while (batch.size() < max && (e = queue.poll()) != null) {
             batch.add(e);
         }
-        if (batch.isEmpty()) return;
+        return batch;
+    }
 
+    private void writeBatch(List<LogEntry> batch) throws SQLException {
         try (Connection c = ds.getConnection();
              PreparedStatement ps = c.prepareStatement("INSERT INTO performance_logs (log_type, value, description) VALUES (?, ?, ?)")) {
             for (LogEntry le : batch) {
@@ -226,7 +268,13 @@ public class DatabaseManager {
             Scheduling.cancel(cleanupTask);
             flushTask = null;
             cleanupTask = null;
-            flushBatchSafe();
+            // Drain completely. One call writes at most DB_MAX_BATCH_SIZE
+            // entries, and everything still queued when the pool closes below
+            // is lost - which is exactly the moment a backlog is likely, since
+            // shutdown follows the last save-all.
+            while (flushBatchSafe() > 0) {
+                // keep going until the queue is empty
+            }
             if (fallbackLogger != null) {
                 fallbackLogger.shutdown();
             }

@@ -29,6 +29,9 @@ public record Finding(
 
     public enum Type {
         WORLD_SAVE,
+        EXPENSIVE_COMMAND,
+        /** A player arrived somewhere that had to be loaded: login or far teleport. */
+        PLAYER_ARRIVAL,
         UNMEASURED_STALL,
         GC_PRESSURE,
         MEMORY_PRESSURE,

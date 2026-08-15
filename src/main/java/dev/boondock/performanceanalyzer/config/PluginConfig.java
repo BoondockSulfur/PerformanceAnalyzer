@@ -15,6 +15,18 @@ import java.util.concurrent.CompletableFuture;
 
 public class PluginConfig {
 
+    /**
+     * Commands known to do a world's worth of work in a single tick. Kept
+     * short on purpose: every entry here can collect the blame for a stall it
+     * merely overlapped, so a command belongs on this list only if it is
+     * genuinely capable of freezing the server.
+     */
+    static final java.util.List<String> DEFAULT_EXPENSIVE_COMMANDS = java.util.List.of(
+            "/",            // every WorldEdit / FAWE command: //paste, //replace, …
+            "mv create", "mv delete", "mv regen",
+            "mvcreate", "mvdelete", "mvregen",
+            "chunky start", "chunky continue");
+
     private final JavaPlugin plugin;
     private FileConfiguration cfg;
     private final AsyncConfigSaver asyncSaver;
@@ -250,6 +262,16 @@ public class PluginConfig {
             changed = true;
             plugin.getLogger().info("[Config] New entry added: database.fallback_log_file");
         }
+        if (!cfg.isSet("alerts.warning_sustain_seconds")) {
+            cfg.set("alerts.warning_sustain_seconds", 30);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.warning_sustain_seconds");
+        }
+        if (!cfg.isSet("attribution.expensive_commands")) {
+            cfg.set("attribution.expensive_commands", DEFAULT_EXPENSIVE_COMMANDS);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: attribution.expensive_commands");
+        }
 
         // The alert_types block above is only created when absent as a whole -
         // configs that already carry it never received the v3.1.0 incident
@@ -464,6 +486,26 @@ public class PluginConfig {
      */
     public boolean dampenWorldSaveAlerts() {
         return cfg.getBoolean("alerts.dampen_world_save", true);
+    }
+
+    /**
+     * How long a WARNING has to hold before it becomes an incident. CRITICAL
+     * and above ignore it. Clamped to 0-600 s; 0 restores the old
+     * report-immediately behaviour.
+     */
+    public int warningSustainSeconds() {
+        return Math.max(0, Math.min(600, cfg.getInt("alerts.warning_sustain_seconds", 30)));
+    }
+
+    /**
+     * Command prefixes whose execution is remembered as a possible cause for a
+     * stall in the seconds that follow. Matched case-insensitively against the
+     * command without its leading slash, so {@code "/"} covers every WorldEdit
+     * command ({@code //paste}, {@code //replace}, …).
+     */
+    public java.util.List<String> expensiveCommands() {
+        java.util.List<String> configured = cfg.getStringList("attribution.expensive_commands");
+        return configured.isEmpty() ? DEFAULT_EXPENSIVE_COMMANDS : configured;
     }
 
     // Silent mode (persistent alert preferences)

@@ -317,13 +317,13 @@ finding:
     detail: "&7Gemessen: &f%.1f ms/s&7 (%.1f%% eines Threads), teuerstes Event: &f%s&7 (%.1f ms/s)"
     recommendation: "Konfiguration von '%s' prüfen, Update einspielen oder mit spark den heißen Pfad eingrenzen."
   hotchunk:
-    title: "Hochaktiver Chunk in %s bei %d, %d"
+    title: "%s in %s bei %d, %d"
     detail: "&7Dominant: &f%s&7 — Hopper: &f%.1f/s&7, Redstone: &f%.1f/s&7, Spawns: &f%.1f/s"
     recommendation: "Bereich prüfen (Welt %s, um x=%d z=%d): Hopper-Uhren, Item-Farmen und Dauer-Redstone sind typische Verursacher."
     kind:
-      hopper: "Hopper-Item-Verkehr"
-      redstone: "Redstone-/Piston-Aktivität"
-      spawns: "Mob-Spawning"
+      hopper: "Hoher Hopper-Item-Verkehr"
+      redstone: "Hochaktives Redstone/Pistons"
+      spawns: "Starkes Mob-Spawning"
   chunkgen:
     title: "Starke Chunk-Generierung"
     detail: "&7Neue Chunks werden mit &f%.1f/s&7 generiert (Erkundung oder Weltrand-Erweiterung)"
@@ -340,6 +340,15 @@ finding:
     title: "Weltspeicherung / Backup läuft"
     detail: "&7Welt '%s' wurde %d s vor dieser Auswertung gespeichert - Speichern pausiert die Tick-Schleife kurz"
     recommendation: "Routine-Speicherungen sind harmlos. Falls das häufig auftritt oder lange dauert: Backup-Zeitplan und Festplattengeschwindigkeit prüfen."
+  command:
+    title: "Aufwändiger Befehl ausgeführt"
+    detail: "&7'%s' von %s, %d s vor dieser Auswertung - solche Befehle erledigen ihre gesamte Arbeit in einem Tick"
+    recommendation: "Wenn der Befehl beabsichtigt war, ist der Aussetzer erwartbar. Große WorldEdit-Operationen lassen sich mit FastAsyncWorldEdit entzerren; Welt-Erzeugung besser bei leerem Server."
+  arrival:
+    title: "Spieler-Ankunft lädt Chunks nach"
+    detail_teleport: "&7Weiter Sprung nach '%s' %d s vor dieser Auswertung - das Ziel muss von der Platte geladen oder erzeugt werden"
+    detail_join: "&7Spieler-Login in '%s' %d s vor dieser Auswertung - rund um den Ausloggpunkt müssen Chunks geladen werden"
+    recommendation: "Einzelne Ankünfte sind normal. Häufen sie sich an derselben Stelle: Gebiet vorgenerieren (Chunky) oder als Spawn-Chunks geladen halten."
   stall:
     title: "Server stand still außerhalb der Tick-Schleife"
     detail: "&7Der Hauptthread war %.1f s blockiert (vor %d s), ohne dass ein einziger Tick fertig wurde - deshalb sehen die Tickzeiten gesund aus, während die TPS einbrachen"
@@ -355,9 +364,11 @@ severity:
     emergency: "Server läuft auf %.1f TPS (Ø-Tick %.1f ms)"
     critical: "20 TPS nicht mehr haltbar: Ø-Tick %.1f ms, TPS %.1f"
     warning: "Spürbare Ruckler: p95-Tick %.1f ms, Ø %.1f ms"
+    warning_tps: "Tickrate auf %.1f TPS gefallen (Ø-Tick %.1f ms)"
     memory: "Old-Gen nach GC bei %.0f%% – echter Speicherdruck"
     gc: "GC-Last: %d ms in 60 s, längste Pause ~%.0f ms"
     baseline_double: "Ø-Tick %.1f ms – mehr als doppelt so hoch wie normal (%.1f ms)"
+    baseline_double_quiet: "Ø-Tick %.1f ms – mehr als doppelt so hoch wie normal (%.1f ms), aber noch weit unter der 50-ms-Grenze"
     baseline_elevated: "Ø-Tick %.1f ms – deutlich über dem Normalwert (%.1f ms)"
     spike: "Einzelner Tick-Spike von %.0f ms"
 
@@ -396,10 +407,9 @@ calibrate:
     window: "Datenbasis zu dünn: erst %minutes% min beobachtet, nötig sind %needed% min."
     window_hint: "Lass den Server mindestens 30–60 Minuten unter normaler Last laufen – am besten während Spieler online sind – und starte /perfcalibrate dann erneut."
     idle: "Im gesamten Beobachtungsfenster war kein Spieler online. Schwellen von einem leeren Server würden im normalen Spielbetrieb Alarm schlagen – starte die Kalibrierung erneut, während der Server tatsächlich genutzt wird."
-    empty_worlds: "In %empty% von %total% Welten sind keine Chunks geladen, der Großteil deiner Inhalte wurde also nie gemessen. Starte die Kalibrierung erneut, während die Welten in Benutzung sind."
   warn:
     quiet: "Nur %players% Spieler online, der Median der letzten %days% Tage liegt bei %median%. Diese Stichprobe ist ruhiger als normal, die Schwellen fielen dadurch zu eng aus."
-    empty_worlds: "In %empty% von %total% Welten sind derzeit keine Chunks geladen."
+    empty_worlds: "In %empty% von %total% Welten waren keine Chunks geladen, sie wurden nicht gemessen. Die Chunk- und Welt-Schwellen beschreiben die übrigen %measured%."
     no_history: "Noch keine Spieler-Historie vorhanden, die Repräsentativität lässt sich nicht beurteilen. Die Reihe füllt sich ab jetzt."
   reason:
     spike: "Normalwert %baseline% ms x %factor%"
@@ -411,9 +421,12 @@ calibrate:
     world_entity: "p95 Entities pro Welt (%p95%) x 1,5"
     world_crit: "Warnwert x 1,6"
     grace: "gemessene %seconds% s bis zum gesunden Zustand nach dem Start x 1,5"
+    floored: "Messung ergab nur %measured% – Kalibrierung senkt nie unter den bisher eingestellten Wert, der Vorschlag bleibt darauf"
   note:
     port_in_use: "api.port %port% ist auf %bind% bereits belegt. Wähle einen freien Port, bevor du die API aktivierst."
     no_protocollib: "ProtocolLib ist nicht installiert – packet_analysis hat keine Wirkung, es wurde keine Paket-Schwelle abgeleitet."
     no_spark: "spark ist nicht installiert – Incident-Berichte können kein Profiling vorschlagen."
     citizens: "Citizens erkannt – NPCs zählen als Entities, die vorgeschlagenen Chunk-Schwellen schließen sie mit ein."
     folia: "Folia: Abtastung pro Chunk ist nicht möglich, Chunk- und Welt-Schwellen wurden deshalb nicht angefasst."
+    thin_chunk_data: "Nur %count% der nötigen %needed% Chunk-Messwerte gesammelt, die Chunk-Schwellen wurden deshalb nicht angefasst. Der Rest des Vorschlags ist davon unberührt."
+    no_world_data: "Im gesamten Fenster hatte keine Welt geladene Chunks, die Welt-Entity-Schwellen wurden deshalb nicht angefasst. Der Rest des Vorschlags ist davon unberührt."

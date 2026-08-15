@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.CHUNK_CRITICAL_FACTOR;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.DEFAULT_CHUNK_ENTITY_CRITICAL;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.DEFAULT_CHUNK_ENTITY_WARNING;
+import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.DEFAULT_PACKET_FLOOD;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.DEFAULT_SPIKE_TICK_MS;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.DEFAULT_WORLD_ENTITY_WARNING;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.SPIKE_FACTOR_WITH_WORLDEDIT;
@@ -17,7 +18,10 @@ import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.PACKE
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.SPIKE_FACTOR;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.SPIKE_MAX_MS;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.SPIKE_MIN_MS;
+import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.GRACE_HEADROOM;
+import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.GRACE_MIN_SECONDS;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.clamp;
+import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.floor;
 import static dev.boondock.performanceanalyzer.calibrate.CalibrationEngine.round;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -148,6 +152,39 @@ class CalibrationFormulaTest {
 
         assertEquals(500, raw, "the raw formula would have cut this to a tenth");
         assertEquals(DEFAULT_WORLD_ENTITY_WARNING, warning);
+    }
+
+    @Test
+    void aRaisedThresholdIsNeverPulledBackDown() {
+        // Production: packet_flood_per_tick had been raised to 3000 after 671
+        // real alerts between 1002 and 5104 packets/tick. A one-minute sample
+        // on an empty server measured p99 = 49, and the shipped-default floor
+        // alone still proposed 3000 -> 1000 - handing every one of those
+        // alerts back. The configured value is the second half of the floor.
+        double measured = Math.max(PACKET_MIN, 49 * PACKET_HEADROOM);
+        double shippedFloorOnly = Math.max(DEFAULT_PACKET_FLOOD, measured);
+        double proposed = floor(measured, DEFAULT_PACKET_FLOOD, 3000.0);
+
+        assertEquals(1000.0, shippedFloorOnly, 1e-9, "the old floor really did land here");
+        assertEquals(3000.0, proposed, 1e-9, "a configured 3000 must survive an idle sample");
+    }
+
+    @Test
+    void aThresholdBelowTheDefaultIsStillRaised() {
+        // The configured value is a floor, not an anchor: someone running
+        // below the shipped default still gets pulled up to it.
+        assertEquals(1000.0, floor(98.0, DEFAULT_PACKET_FLOOD, 500.0), 1e-9);
+    }
+
+    @Test
+    void graceOnlyEverGrows() {
+        // A 34 s boot must not halve the 120 s an admin set after phantom
+        // boot incidents; a genuinely slower boot still widens it.
+        int measuredFromGoodBoot = (int) Math.ceil(34 * GRACE_HEADROOM);
+        assertEquals(120, floor(measuredFromGoodBoot, GRACE_MIN_SECONDS, 120));
+
+        int measuredFromSlowBoot = (int) Math.ceil(200 * GRACE_HEADROOM);
+        assertEquals(300, floor(measuredFromSlowBoot, GRACE_MIN_SECONDS, 120));
     }
 
     @Test

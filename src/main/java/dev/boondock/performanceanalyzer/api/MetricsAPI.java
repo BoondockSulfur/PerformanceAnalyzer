@@ -541,7 +541,10 @@ public final class MetricsAPI {
     }
 
     private List<ListenerTimings.PluginLoad> topPluginLoads() {
-        if (timings == null) {
+        // isActive() as well as null: the instance now always exists so the
+        // setting can be toggled at runtime, and a stopped one holds only the
+        // numbers it collected before it was switched off.
+        if (timings == null || !timings.isActive()) {
             return List.of();
         }
         List<ListenerTimings.PluginLoad> loads = timings.loads();

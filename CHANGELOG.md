@@ -7,6 +7,158 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.1] - 2026-08-10
+
+Things this version got wrong, all found by running it on a real server and
+reading back eight days of its own output rather than by reading the code.
+
+### Changed
+- **A WARNING now means the tick rate suffered, and it has to hold.** Two rules
+  decided it before, and both fired on servers that were fine. The tail bound
+  `p95 >= 50` warned on production at p95 51.3 ms while the rate sat at 19.9
+  TPS — one tick in twenty a hair past the deadline, nothing anyone could feel.
+  And nothing required the trouble to last: a five-second login burst and a
+  fourteen-second redstone burst each opened an incident.
+
+  A WARNING is now `TPS < 19` or a 35 ms average, and it has to hold for
+  `alerts.warning_sustain_seconds` (default 30) before an incident opens.
+  CRITICAL and above skip the wait — below 17 TPS or at a 50 ms average the
+  server is already failing and waiting would be absurd. The incident is dated
+  from when the trouble started and carries the peaks measured during the wait,
+  so this filter cannot quietly shorten what it lets through.
+
+### Fixed
+- **Seventeen WARNING incidents for "somebody is playing".** A baseline
+  deviation alone opened an incident, and on a server that idles at 3.5 ms the
+  first player who logs in is a fourfold jump — `normal * 2 + 10` is crossed by
+  ordinary play. Measured on production: 17 WARNINGs in eight days, every one
+  at 14–19.5 ms average tick with TPS never below 19.8, each coinciding with
+  one or two players online. A deviation now needs the absolute load to be
+  meaningful as well (avg ≥ 25 ms, half the deadline, or p95 ≥ 35 ms) before it
+  reaches WARNING; below that it is a NOTICE, which is recorded but opens no
+  incident. Genuine degradation still escalates — a server drifting to 26 ms
+  average warns as before.
+
+  The gate first carried a tail arm as well (p95 ≥ 35 ms), which let the same
+  noise straight back in: on rattenkolonie, idling at 0.2 ms, a player logging
+  in produced avg 11.1 ms with a p95 between 35 and 50 ms — five seconds of
+  chunk loading — and opened a WARNING. A tail that genuinely hurts is already
+  a WARNING through the absolute `p95 >= 50` rule, so the arm bought no
+  detection and only cost quiet. The gate is the average alone.
+
+- **The cause showed up late, and then under a name that said nothing.**
+  `hotChunks()` only ever exposes the last *completed* 10-second activity
+  window, so the report an incident opens with could be built from data up to
+  ten seconds old — and a lag source that had just started was not in it at
+  all. The window is now closed on the spot when an incident opens; rates
+  divide by the window's real elapsed time, so a short one under-reports
+  slightly rather than inventing load. And the finding is titled by what is
+  actually going on — "Hochaktives Redstone/Pistons in Vorbau bei 192, 48"
+  instead of "Hochaktiver Chunk" — because the incident list and the Discord
+  alert show the title alone, while the plugin knew the answer all along and
+  kept it in the detail line.
+
+- **A login was not attributed.** Teleports were, but the case that produced
+  the complaint was a player logging in — same physics, chunks around the
+  logout point being read or generated, and it still reported "no clear cause".
+  Both now share one finding (`PLAYER_ARRIVAL`). Unlike the world-save and
+  command markers it is *not* pinned above the measured findings: an arrival
+  overlapping an incident is a correlation, not proof, so it takes part in the
+  normal sort and surfaces only when nothing measured outranks it.
+
+- **Every incident was reported 30 seconds longer than it lasted.** An incident
+  resolved at the end of the grace period, and that timestamp became its end
+  time, so the fixed `RESOLVE_GRACE_MS` was billed to every duration. A 12-second
+  blip on production was announced as "Dauer: 42s". Incidents now end when the
+  server recovered; the grace period remains what it always was — confirmation
+  that the recovery held.
+
+- **The database dropped measurements in three places.** `drain` polled an
+  entry and *then* checked whether the batch was full, discarding exactly one
+  measurement on every capped flush. A failed write lost its whole batch: the
+  entries had already left the queue, and the failure path only rescued what
+  was still queued, so the first batch after an outage went nowhere — it is now
+  written to the fallback file, together with whatever else piled up. And
+  `shutdown()` flushed a single batch of at most 1000 entries before closing
+  the pool, which is the one moment a backlog is likely; it now drains
+  completely. If no fallback file is configured the loss is at least logged
+  instead of silent.
+
+- **`ChunkTracker` kept every heavy chunk it ever saw.** One entry per chunk
+  above the tile/entity warning thresholds, never evicted, on a map with no
+  upper bound — so it grew for as long as the server ran, and pregeneration or
+  exploration grew it fast. Capped at 4096 like the equivalent map in
+  `ActivityCounters`; chunks skipped once full are counted rather than ignored.
+
+- **`/perfreload` did not apply the settings the config GUI offers.** Packet
+  analysis, listener timings and the REST API were wired up at enable time and
+  never touched again, so toggling them and reloading did nothing at all while
+  the GUI said "takes effect after restart or /perfreload". All three now start
+  and stop on reload. `ListenerTimings` is always constructed for this reason —
+  its consumers take the reference once, so a null could never have become
+  non-null again — and `isActive()` carries the on/off state.
+
+- **Calibration called `Bukkit.getOnlinePlayers()` off the tick thread**, in a
+  class whose contract says it runs async by design. It now reads the monitor's
+  main-thread sample.
+
+- **WorldEdit operations and teleports ended in "no clear cause"** while the
+  reason sat two lines above in the server log. Neither is visible to any of
+  the instrumented sources: the work happens inside the command or the teleport,
+  not in a listener, a chunk counter or a GC pause. Both now set a cause marker
+  like the world save does — verified against `//paste` (TPS 15.5), `/mv delete`
+  + `/mv create` ("Prepared spawn area in 4083 ms") and `/home` jumps producing
+  778 ms ticks. Command matching is driven by `attribution.expensive_commands`
+  and deliberately short, because anything on that list can collect the blame
+  for a stall it merely overlapped; teleports under 256 blocks within one world
+  are ignored, their destination being loaded already.
+
+- **Calibration could tighten a threshold an admin had deliberately raised.**
+  The floor protected only the shipped default, so it did nothing for any
+  install that had ever changed a value. Found on production, where
+  `packet_flood_per_tick` sat at 3000 after 671 real alerts between 1002 and
+  5104 packets/tick had proven 1000 too tight — and calibration proposed
+  pulling it straight back to 1000, which would have reinstated every one of
+  those alerts. The measurement behind the proposal was 49 packets/tick from a
+  one-minute window on an empty server; the packet counter itself is sound and
+  resets every tick, in v2 as in v3.
+
+  Every proposal now floors at `max(shipped default, value in effect today)`,
+  so calibration can widen a limit and never narrow one. `startup_grace_seconds`
+  follows the same rule: one fast boot is a single observation, and shortening
+  the grace is what brought the phantom boot incidents back — production's
+  deliberate 120 s is no longer halved by a 34 s boot.
+
+- **A floored value was justified with a formula that produced a different
+  number.** "p99 x 2" printed under a proposal of 1000 when p99 x 2 was 98.
+  When a floor decides the value, the reason now says so and names what the
+  sample actually suggested.
+
+- **`/perfcalibrate` refused to run because worlds were idle.** Unloaded worlds
+  vetoed the entire calibration once more than a third of them had no loaded
+  chunks — and on a normal server that is the normal state: nobody is in the
+  nether, so the nether has no chunks. Two worlds with one of them quiet was
+  already enough to block. The veto also discarded `spike_tick_ms`,
+  `packet_flood_per_tick` and `startup_grace_seconds`, none of which have
+  anything to do with worlds.
+
+  The guard existed to stop a thin spatial sample from proposing tight world
+  thresholds, but that job is already done twice over: every proposal is
+  floored and so can only ever relax (`idleSampleCannotTighten…` covers exactly
+  the 6-of-9-worlds case), and the sampler skips empty worlds instead of
+  recording a zero for them, so they never drag the percentiles down. Unloaded
+  worlds are now a warning naming how many worlds *were* measured, and
+  calibration proceeds.
+
+### Added
+- **Skipped proposals say so.** When too few chunk observations were collected,
+  or no world had a loaded chunk at all, the chunk and world thresholds are
+  left untouched with a note explaining which values were skipped and why —
+  previously an empty spatial sample returned silently, which read like
+  "nothing to change here".
+
+---
+
 ## [3.2.0] - 2026-08-09
 
 Adds threshold calibration, so a fresh install no longer has to guess the
