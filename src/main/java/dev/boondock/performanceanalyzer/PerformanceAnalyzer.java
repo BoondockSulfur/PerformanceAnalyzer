@@ -140,8 +140,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.monitorService.setLanguage(lang);
         this.monitorService.setStartupGraceSeconds(configAdapter.startupGraceSeconds());
         this.monitorService.setDatabase(database, configAdapter.logIntervalSeconds());
-        this.tickTimeSampler.onSpike(configAdapter.spikeTickMs(),
-                worstTickMs -> monitorService.evaluateNow());
+        this.tickTimeSampler.onSpike(configAdapter.spikeTickMs(), this::onTickSpike);
 
         this.tickTimeSampler.start();
         this.gcSampler.start();
@@ -174,12 +173,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         commandRegistry.registerAll();
 
         // REST API (off by default; binds to 127.0.0.1 unless configured otherwise)
-        if (configAdapter.apiEnabled()) {
-            this.metricsApi = new MetricsAPI(this, configAdapter, monitorService,
-                    incidentAnalyzer, activityCounters, listenerTimings,
-                    worldStatsManager, database);
-            this.metricsApi.start();
-        }
+        applyApiSetting();
 
         // bStats anonymous usage metrics (https://bstats.org/plugin/bukkit/PerformanceAnalyzer/32115)
         this.bstats = new org.bstats.bukkit.Metrics(this, 32115);
@@ -188,6 +182,19 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
 
         getLogger().info("PerformanceAnalyzer v" + getDescription().getVersion()
                 + " enabled (" + (Scheduling.FOLIA ? "Folia" : "Paper") + " mode).");
+    }
+
+    /**
+     * Spike callback. The sampler invokes it from the tick-end event, i.e. on
+     * the main thread, so the evaluation is handed to the async scheduler:
+     * running it inline put the whole incident pipeline - and a wait for the
+     * analyzer's lock - into the very moment the server was already lagging.
+     */
+    private void onTickSpike(double worstTickMs) {
+        MonitorService monitor = this.monitorService;
+        if (monitor != null) {
+            Scheduling.runAsync(this, monitor::evaluateNow);
+        }
     }
 
     private void checkForUpdates() {
@@ -286,8 +293,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
             monitorService.setStartupGraceSeconds(configAdapter.startupGraceSeconds());
         }
         if (tickTimeSampler != null && monitorService != null) {
-            tickTimeSampler.onSpike(configAdapter.spikeTickMs(),
-                    worstTickMs -> monitorService.evaluateNow());
+            tickTimeSampler.onSpike(configAdapter.spikeTickMs(), this::onTickSpike);
         }
         if (chunkTracker != null) {
             chunkTracker.refreshThresholds();
@@ -341,18 +347,34 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         }
     }
 
-    /** Starts or stops the REST API to match the config. */
+    /**
+     * Starts, restarts or stops the REST API to match the config.
+     *
+     * <p>{@link #metricsApi} only ever holds a server that is actually
+     * listening. It used to be assigned before {@code start()} was known to
+     * succeed, so after one refused start (empty key, port taken) every later
+     * reload saw "already there" and did nothing until a server restart.
+     * A running server is restarted when bind, port or key changed - it reads
+     * them once, at start.
+     */
     private void applyApiSetting() {
         boolean wanted = configAdapter.apiEnabled();
-        if (wanted && metricsApi == null) {
-            this.metricsApi = new MetricsAPI(this, configAdapter, monitorService,
-                    incidentAnalyzer, activityCounters, listenerTimings,
-                    worldStatsManager, database);
-            this.metricsApi.start();
-        } else if (!wanted && metricsApi != null) {
+        if (wanted && metricsApi != null && metricsApi.runsWith(
+                configAdapter.apiBind(), configAdapter.apiPort(), configAdapter.apiKey())) {
+            return;
+        }
+        if (metricsApi != null) {
             metricsApi.stop();
             metricsApi = null;
-            getLogger().info("[Reload] REST API stopped.");
+        }
+        if (!wanted) {
+            return;
+        }
+        MetricsAPI api = new MetricsAPI(this, configAdapter, monitorService,
+                incidentAnalyzer, activityCounters, listenerTimings,
+                worldStatsManager, database);
+        if (api.start()) {
+            this.metricsApi = api;
         }
     }
 

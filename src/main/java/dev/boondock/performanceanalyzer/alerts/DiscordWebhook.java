@@ -27,6 +27,11 @@ public class DiscordWebhook {
     private final Plugin plugin;
     private final PluginConfig config;
 
+    private static final int CONNECT_TIMEOUT_MS = 5_000;
+    private static final int READ_TIMEOUT_MS = 10_000;
+    /** Longest Retry-After honoured on HTTP 429; anything longer drops the alert. */
+    private static final long MAX_RETRY_AFTER_MS = 30_000L;
+
     private final AtomicLong lastRequestTime = new AtomicLong(0);
     private final ConcurrentLinkedQueue<WebhookRequest> requestQueue = new ConcurrentLinkedQueue<>();
     private volatile boolean processorRunning = false;
@@ -89,7 +94,7 @@ public class DiscordWebhook {
      */
     public void sendAlert(dev.boondock.performanceanalyzer.analysis.Severity severity, String description, double value) {
         if (!config.discordEnabled()) {
-            plugin.getLogger().fine("[Discord] Webhook deaktiviert (discord.enabled: false)");
+            plugin.getLogger().fine("[Discord] Webhook disabled (discord.enabled: false)");
             return;
         }
 
@@ -165,9 +170,23 @@ public class DiscordWebhook {
                 }
             }
 
-            // Send the request
+            // Send the request; one retry when Discord rate-limits us
             try {
-                sendWebhookSync(request.webhookUrl, request.json);
+                long retryAfterMs = sendWebhookSync(request.webhookUrl, request.json);
+                if (retryAfterMs > 0) {
+                    if (retryAfterMs > MAX_RETRY_AFTER_MS) {
+                        throw new IOException("rate limited for " + retryAfterMs + " ms");
+                    }
+                    try {
+                        Thread.sleep(retryAfterMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    if (sendWebhookSync(request.webhookUrl, request.json) > 0) {
+                        throw new IOException("still rate limited after retry");
+                    }
+                }
                 lastRequestTime.set(System.currentTimeMillis());
 
                 if (config.debugMode()) {
@@ -218,11 +237,22 @@ public class DiscordWebhook {
         };
     }
 
-    private void sendWebhookSync(String webhookUrl, String json) throws IOException {
+    /**
+     * Posts one payload.
+     *
+     * <p>Timeouts are mandatory here: a single connection that never answers
+     * would otherwise block the queue processor for good, and every later
+     * alert would pile up until the queue overflows and is dropped.
+     *
+     * @return 0 on success, or the Retry-After delay in ms on HTTP 429
+     */
+    private long sendWebhookSync(String webhookUrl, String json) throws IOException {
         URL url = new URL(webhookUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
         try {
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("User-Agent", "PerformanceAnalyzer/" + plugin.getDescription().getVersion());
@@ -236,12 +266,28 @@ public class DiscordWebhook {
 
             // Check response
             int responseCode = connection.getResponseCode();
+            if (responseCode == 429) {
+                return retryAfterMs(connection.getHeaderField("Retry-After"));
+            }
             if (responseCode < 200 || responseCode >= 300) {
                 throw new IOException("Discord API returned status " + responseCode);
             }
+            return 0;
         } finally {
             connection.disconnect();
         }
+    }
+
+    /** Retry-After is given in (possibly fractional) seconds; default 2 s. */
+    static long retryAfterMs(String header) {
+        if (header != null) {
+            try {
+                return Math.max(1L, (long) Math.ceil(Double.parseDouble(header.trim()) * 1000.0));
+            } catch (NumberFormatException ignored) {
+                // fall through to the default
+            }
+        }
+        return 2_000L;
     }
 
     /**

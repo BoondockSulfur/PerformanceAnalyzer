@@ -36,7 +36,8 @@ public final class MonitorService {
     private DatabaseManager database;
     private LanguageManager lang;
     private volatile int logIntervalSeconds;
-    private int secondsSinceLog;
+    /** Wall-clock time of the last database write; guarded by {@code this}. */
+    private long lastLogAtMs;
 
     private volatile TickStats tickStats = TickStats.EMPTY;
     private volatile SeverityModel.Assessment assessment = SeverityModel.Assessment.OK;
@@ -124,7 +125,12 @@ public final class MonitorService {
         evaluate();
     }
 
-    private void evaluate() {
+    /**
+     * Synchronized because two callers exist - the 1-second loop and the
+     * spike callback - and both feed the baseline and the incident engine,
+     * which must see evaluations one at a time and in order.
+     */
+    private synchronized void evaluate() {
         try {
             // During server shutdown the tick loop stops while worlds save;
             // the counted TPS collapses (2 ms avg tick but "15 TPS") and every
@@ -170,10 +176,13 @@ public final class MonitorService {
         if (db == null || !ticks.hasData()) {
             return;
         }
-        if (++secondsSinceLog < logIntervalSeconds) {
+        // Time-based rather than counting calls: spike evaluations come on
+        // top of the 1-second loop and would otherwise shorten the interval.
+        long now = System.currentTimeMillis();
+        if (now - lastLogAtMs < logIntervalSeconds * 1_000L) {
             return;
         }
-        secondsSinceLog = 0;
+        lastLogAtMs = now;
         db.logAsync("mspt", ticks.msptAvg10s(), null);
         db.logAsync("mspt_p95", ticks.msptP95(), null);
         db.logAsync("tps", ticks.tps10s(), null);

@@ -57,7 +57,7 @@ public class FallbackLogger {
         }
 
         String timestamp = LocalDateTime.now().format(formatter);
-        String entry = String.format("%s | %s | %.2f | %s", timestamp, type, value, description);
+        String entry = String.format(java.util.Locale.ROOT, "%s | %s | %.2f | %s", timestamp, type, value, description);
         queue.offer(entry);
 
         // Trigger flush if threshold reached

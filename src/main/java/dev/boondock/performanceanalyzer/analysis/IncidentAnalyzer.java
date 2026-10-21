@@ -60,6 +60,15 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
      * and blaming a teleport that cost nothing would hide the real cause.
      */
     private static final double TELEPORT_MIN_DISTANCE = 256.0;
+    /**
+     * Minimum gap between two entity sweeps. The sweep walks every loaded
+     * chunk on the main thread; repeating it with every 5-second findings
+     * refresh added main-thread work to exactly the periods that were already
+     * lagging.
+     */
+    private static final long ENTITY_SWEEP_MIN_INTERVAL_MS = 30_000L;
+    /** Sweep results older than this describe a past state and are not reported. */
+    private static final long ENTITY_HOTSPOT_MAX_AGE_MS = 60_000L;
 
     private final Plugin plugin;
     private final LanguageManager lang;
@@ -93,6 +102,8 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private volatile String lastArrivalWorldName = "";
     private volatile String lastArrivalDetailKey = "finding.arrival.detail_teleport";
     private volatile List<EntityAnalyzer.EntityHotspot> lastEntityHotspots = List.of();
+    private volatile long lastEntitySweepAtMs;
+    private volatile long lastEntitySweepRequestAtMs;
     private volatile boolean entitySweepPending;
 
     public IncidentAnalyzer(Plugin plugin, LanguageManager lang, ActivityCounters activity,
@@ -498,9 +509,12 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                     frequent.worldName(), frequent.blockX(), frequent.blockZ(), frequent.loadCount()));
         }
 
-        // 6. Entity hotspots from the last global-thread sweep (Paper only).
+        // 6. Entity hotspots from the last global-thread sweep (Paper only),
+        // and only while that sweep is recent: an old result would present
+        // a crowd that may long be gone as the cause of a new incident.
         // EntityHotspot.x()/z() are already block coordinates.
-        for (EntityAnalyzer.EntityHotspot hotspot : lastEntityHotspots) {
+        boolean sweepFresh = System.currentTimeMillis() - lastEntitySweepAtMs <= ENTITY_HOTSPOT_MAX_AGE_MS;
+        for (EntityAnalyzer.EntityHotspot hotspot : sweepFresh ? lastEntityHotspots : List.<EntityAnalyzer.EntityHotspot>of()) {
             findings.add(Finding.located(Finding.Type.ENTITY_HOTSPOT,
                     hotspot.severity() == EntityAnalyzer.HotspotSeverity.CRITICAL ? Severity.WARNING : Severity.NOTICE,
                     Finding.Confidence.MEASURED,
@@ -550,8 +564,8 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         // 8. Cause markers, pinned above everything measured inside the tick
         // loop — the work they describe happens outside it, so no counter can
         // have seen it. Inserted at 0 in ascending order of confidence, which
-        // leaves them ordered world save > command > teleport > stall: a save
-        // explains a stall better than a teleport that merely overlapped it.
+        // leaves them ordered world save > command > stall. A login or
+        // teleport (6b) is deliberately not pinned: it only correlates.
         long sinceCommandMs = System.currentTimeMillis() - lastExpensiveCommandAtMs;
         if (lastExpensiveCommandAtMs > 0 && sinceCommandMs <= COMMAND_ATTRIBUTION_MS) {
             findings.add(0, Finding.global(Finding.Type.EXPENSIVE_COMMAND, Severity.NOTICE,
@@ -605,12 +619,18 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         if (Scheduling.FOLIA || entityAnalyzer == null || entitySweepPending) {
             return;
         }
+        long now = System.currentTimeMillis();
+        if (now - lastEntitySweepRequestAtMs < ENTITY_SWEEP_MIN_INTERVAL_MS) {
+            return;
+        }
+        lastEntitySweepRequestAtMs = now;
         entitySweepPending = true;
         Scheduling.runGlobal(plugin, () -> {
             try {
                 EntityAnalyzer.EntityAnalysis analysis = entityAnalyzer.analyze();
                 List<EntityAnalyzer.EntityHotspot> hotspots = analysis.hotspots();
                 lastEntityHotspots = hotspots.size() > 3 ? hotspots.subList(0, 3) : hotspots;
+                lastEntitySweepAtMs = System.currentTimeMillis();
             } catch (Exception e) {
                 plugin.getLogger().fine("Entity sweep failed: " + e.getMessage());
             } finally {

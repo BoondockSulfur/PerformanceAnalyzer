@@ -19,8 +19,14 @@ import java.util.Map;
 public class LanguageManager {
 
     private final JavaPlugin plugin;
-    private final Map<String, String> messages = new HashMap<>();
-    private String currentLanguage;
+    /*
+     * Replaced as a whole on every (re)load, never modified in place: the
+     * monitor loop, the REST API and the Discord sender read messages from
+     * other threads, and clearing a shared HashMap under them made alerts
+     * show raw keys during /perfreload.
+     */
+    private volatile Map<String, String> messages = Map.of();
+    private volatile String currentLanguage;
 
     // Supported languages
     public static final String[] SUPPORTED_LANGUAGES = {"en", "de"};
@@ -36,7 +42,6 @@ public class LanguageManager {
      */
     public void loadLanguage(String language) {
         this.currentLanguage = language;
-        messages.clear();
 
         // Create lang folder if it doesn't exist
         File langFolder = new File(plugin.getDataFolder(), "lang");
@@ -66,6 +71,7 @@ public class LanguageManager {
                     langConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(is, StandardCharsets.UTF_8));
                 } else {
                     plugin.getLogger().severe("[Lang] No language files found!");
+                    this.messages = Map.of();
                     return;
                 }
             }
@@ -77,14 +83,16 @@ public class LanguageManager {
         // Reload after merge
         langConfig = YamlConfiguration.loadConfiguration(langFile);
 
-        // Load all messages into the map
+        // Load all messages into a fresh map, then publish it in one step
+        Map<String, String> loaded = new HashMap<>();
         for (String key : langConfig.getKeys(true)) {
             if (langConfig.isString(key)) {
-                messages.put(key, langConfig.getString(key));
+                loaded.put(key, langConfig.getString(key));
             }
         }
+        this.messages = Map.copyOf(loaded);
 
-        plugin.getLogger().info("[Lang] Loaded language: " + language + " (" + messages.size() + " messages)");
+        plugin.getLogger().info("[Lang] Loaded language: " + language + " (" + loaded.size() + " messages)");
     }
 
     /**

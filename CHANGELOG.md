@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.0] - 2026-10-21
+
+### Fixed
+- `/perfreload` can enable the REST API again after a refused start (empty key, port taken); it restarts on bind/port/key changes.
+- Spike evaluation runs async instead of inside the lagging tick.
+- Discord webhooks have connect/read timeouts and honour Retry-After on HTTP 429.
+- ZGC/Shenandoah concurrent cycles no longer count as GC pause time.
+- Shutdown no longer overwrites hand edits of config.yml; config saves are atomic and coalesced.
+- Single-category mutes from `/perfsilent` survive logout.
+- Entity sweeps are rate-limited, and stale sweep results are no longer reported as incident causes.
+- Missing optional database drivers fall back instead of disabling the plugin; SQLite uses one connection; MySQL index creation works.
+- Language reloads no longer show raw keys in alerts; config merging no longer re-adds obsolete v2 alert types.
+
+### Changed
+- `/chunkstats` overview, `/entitystats` and `/worldstats` are disabled on Folia (cross-region access); `/perfincidents` and the REST API remain the location signal.
+- German texts use proper umlauts.
+
+### Removed
+- Aliases `incidents`, `ps`, `silent` and `calibrate`; use `/perfincidents`, `/perfsilent`, `/perfcalibrate` or `pi`/`pc`.
+
 ## [3.2.1] - 2026-08-10
 
 Things this version got wrong, all found by running it on a real server and

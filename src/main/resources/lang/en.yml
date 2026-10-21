@@ -12,6 +12,7 @@ general:
   reload_success: "&aPerformanceAnalyzer successfully reloaded!"
   reload_error: "&cError while reloading: %error%"
   unknown_error: "&cAn unknown error occurred."
+  folia_unsupported: "&cNot available on Folia - this scan would walk every world from one thread. Use /perfincidents for measured hot chunks."
 
 # ===================
 # Performance Status
@@ -251,6 +252,8 @@ chunkstats:
 # Silent Mode / Streamer Mode
 # ===================
 silent:
+  category_all: "All alerts"
+  category_performance: "Performance warnings"
   all_muted: "&a[Silent Mode] &fAll alerts muted. Use &e/perfsilent &fto re-enable."
   all_unmuted: "&a[Silent Mode] &fAll alerts re-enabled."
   category_muted: "&a[Silent Mode] &f%category% &7alerts muted."

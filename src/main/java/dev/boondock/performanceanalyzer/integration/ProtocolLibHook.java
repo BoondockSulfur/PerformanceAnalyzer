@@ -20,6 +20,7 @@ import org.bukkit.plugin.Plugin;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 public class ProtocolLibHook {
     private final Plugin plugin;
@@ -28,11 +29,14 @@ public class ProtocolLibHook {
     private DatabaseManager database;
     private volatile AlertManager alertManager;
 
-    private final AtomicLong packetsThisTick = new AtomicLong(0);
+    // LongAdder rather than AtomicLong: every packet of every player bumps
+    // these from the Netty threads, and a single contended atomic is a
+    // measurable cost on a busy server. The total is the sum of both
+    // directions instead of a third counter.
+    private final LongAdder packetsThisTick = new LongAdder();
     private final AtomicLong peakPacketsPerTick = new AtomicLong(0);
-    private final AtomicLong packetsReceived = new AtomicLong(0);
-    private final AtomicLong packetsSent = new AtomicLong(0);
-    private final AtomicLong totalPackets = new AtomicLong(0);
+    private final LongAdder packetsReceived = new LongAdder();
+    private final LongAdder packetsSent = new LongAdder();
 
     private ScheduledTask resetTask;
     private ScheduledTask logTask;
@@ -45,12 +49,12 @@ public class ProtocolLibHook {
 
     public static ProtocolLibHook tryHook(Plugin plugin, PluginConfig cfg) {
         if (Bukkit.getPluginManager().getPlugin("ProtocolLib") == null) {
-            plugin.getLogger().info("ProtocolLib nicht gefunden - Paket-Analyse deaktiviert.");
+            plugin.getLogger().info("ProtocolLib not found - packet analysis disabled.");
             return null;
         }
         ProtocolLibHook hook = new ProtocolLibHook(plugin, cfg, ProtocolLibrary.getProtocolManager());
         hook.register();
-        plugin.getLogger().info("ProtocolLib Hook aktiviert - Paket-Analyse gestartet.");
+        plugin.getLogger().info("ProtocolLib hooked - packet analysis started.");
         return hook;
     }
 
@@ -78,9 +82,9 @@ public class ProtocolLibHook {
         if (db != null) {
             this.logTask = Scheduling.runAsyncRepeating(plugin, () -> {
                 if (database != null) {
-                    database.logAsync("packets_total", totalPackets.get(), "Total packets processed");
-                    database.logAsync("packets_received", packetsReceived.get(), "Packets received from clients");
-                    database.logAsync("packets_sent", packetsSent.get(), "Packets sent to clients");
+                    database.logAsync("packets_total", getTotalPackets(), "Total packets processed");
+                    database.logAsync("packets_received", getPacketsReceived(), "Packets received from clients");
+                    database.logAsync("packets_sent", getPacketsSent(), "Packets sent to clients");
                 }
             }, 60_000L, 60_000L);
         }
@@ -100,32 +104,30 @@ public class ProtocolLibHook {
             }
         }
 
-        plugin.getLogger().info("ProtocolLib: " + validPackets.size() + " gültige Paket-Typen registriert.");
+        plugin.getLogger().info("ProtocolLib: " + validPackets.size() + " packet types registered.");
 
         if (validPackets.isEmpty()) {
-            plugin.getLogger().warning("Keine gültigen Paket-Typen gefunden!");
+            plugin.getLogger().warning("ProtocolLib: no supported packet types found!");
             return;
         }
 
         pm.addPacketListener(new PacketAdapter(plugin, ListenerPriority.MONITOR, validPackets) {
             @Override
             public void onPacketReceiving(PacketEvent event) {
-                packetsThisTick.incrementAndGet();
-                packetsReceived.incrementAndGet();
-                totalPackets.incrementAndGet();
+                packetsThisTick.increment();
+                packetsReceived.increment();
             }
 
             @Override
             public void onPacketSending(PacketEvent event) {
-                packetsThisTick.incrementAndGet();
-                packetsSent.incrementAndGet();
-                totalPackets.incrementAndGet();
+                packetsThisTick.increment();
+                packetsSent.increment();
             }
         });
 
         // Per-tick counter reset + packet flood detection (potential lag cause or attack)
         resetTask = Scheduling.runGlobalRepeating(plugin, () -> {
-            long count = packetsThisTick.getAndSet(0);
+            long count = packetsThisTick.sumThenReset();
             // Remember the peak so calibration can derive a flood threshold
             // from real traffic. The database only stores cumulative totals,
             // whose deltas average the spikes away.
@@ -157,9 +159,9 @@ public class ProtocolLibHook {
     }
 
     // Getter for stats
-    public long getTotalPackets() { return totalPackets.get(); }
-    public long getPacketsReceived() { return packetsReceived.get(); }
-    public long getPacketsSent() { return packetsSent.get(); }
+    public long getTotalPackets() { return packetsReceived.sum() + packetsSent.sum(); }
+    public long getPacketsReceived() { return packetsReceived.sum(); }
+    public long getPacketsSent() { return packetsSent.sum(); }
 
     /** Highest packets-per-tick observed since the last call, then resets. */
     public long drainPeakPacketsPerTick() { return peakPacketsPerTick.getAndSet(0L); }

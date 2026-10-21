@@ -79,6 +79,13 @@ public final class GcSampler {
         long now = System.currentTimeMillis();
 
         for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            // ZGC and Shenandoah expose a "... Cycles" bean next to "... Pauses".
+            // Its collection time is the length of the concurrent cycle, during
+            // which the application keeps running - counting it reported
+            // seconds of "GC time" on servers that never paused.
+            if (bean.getName().contains("Cycles")) {
+                continue;
+            }
             long count = bean.getCollectionCount();
             long time = bean.getCollectionTime();
             if (count < 0) {
@@ -106,8 +113,9 @@ public final class GcSampler {
         for (GcEvent event : events) {
             count60 += event.collections;
             time60 += event.timeMs;
-            // Upper bound: if several collections happened in one poll we
-            // only know their combined time.
+            // Average per collection: if several collections happened in one
+            // poll only their combined time is known, so a single long pause
+            // among short ones is under-reported.
             double pause = (double) event.timeMs / Math.max(1, event.collections);
             if (pause > longestPause) {
                 longestPause = pause;

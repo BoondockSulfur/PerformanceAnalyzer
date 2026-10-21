@@ -135,9 +135,14 @@ public class AlertPreferenceManager {
      * Cleanup player data on disconnect (non-persistent preferences only).
      */
     public void cleanup(UUID playerId) {
-        // Only remove if not in persistent list
-        List<String> persistentPlayers = config.silentPlayers();
-        if (!persistentPlayers.contains(playerId.toString())) {
+        // Only remove if not in persistent list. Entries are "uuid" (all
+        // muted) or "uuid:CATEGORY,..." - matching only the bare form threw
+        // away single-category mutes on every logout, and nothing reloads
+        // them before the next restart.
+        String id = playerId.toString();
+        boolean persistent = config.silentPlayers().stream()
+                .anyMatch(entry -> entry.equals(id) || entry.startsWith(id + ":"));
+        if (!persistent) {
             mutedCategories.remove(playerId);
         }
     }
@@ -181,7 +186,8 @@ public class AlertPreferenceManager {
     private void updatePersistence(UUID playerId) {
         List<String> silentPlayers = new ArrayList<>(config.silentPlayers());
         // Remove old entry for this player
-        silentPlayers.removeIf(e -> e.startsWith(playerId.toString()));
+        String id = playerId.toString();
+        silentPlayers.removeIf(e -> e.equals(id) || e.startsWith(id + ":"));
 
         Set<AlertCategory> muted = mutedCategories.get(playerId);
         if (muted != null && !muted.isEmpty()) {
@@ -200,22 +206,11 @@ public class AlertPreferenceManager {
     }
 
     /**
-     * Alert categories that can be individually muted.
+     * Alert categories that can be individually muted. Display names live in
+     * the language files as {@code silent.category_<name>}.
      */
     public enum AlertCategory {
-        ALL("Alle Alerts", "All Alerts"),
-        PERFORMANCE("Performance-Warnungen", "Performance Warnings");
-
-        private final String displayNameDe;
-        private final String displayNameEn;
-
-        AlertCategory(String displayNameDe, String displayNameEn) {
-            this.displayNameDe = displayNameDe;
-            this.displayNameEn = displayNameEn;
-        }
-
-        public String getDisplayName(String lang) {
-            return "de".equalsIgnoreCase(lang) ? displayNameDe : displayNameEn;
-        }
+        ALL,
+        PERFORMANCE
     }
 }

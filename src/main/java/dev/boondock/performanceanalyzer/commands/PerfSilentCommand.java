@@ -88,10 +88,10 @@ public class PerfSilentCommand implements CommandExecutor, TabCompleter {
         boolean silenced = preferences.toggleCategory(player.getUniqueId(), category);
         if (silenced) {
             player.sendMessage(lang.get("silent.category_muted",
-                    "%category%", category.getDisplayName(lang.getCurrentLanguage())));
+                    "%category%", categoryName(category)));
         } else {
             player.sendMessage(lang.get("silent.category_unmuted",
-                    "%category%", category.getDisplayName(lang.getCurrentLanguage())));
+                    "%category%", categoryName(category)));
         }
 
         return true;
@@ -114,11 +114,15 @@ public class PerfSilentCommand implements CommandExecutor, TabCompleter {
                         ? "\u00a7c\u2716 " + lang.get("silent.status_muted")
                         : "\u00a7a\u2714 " + lang.get("silent.status_active");
                 player.sendMessage(String.format("  \u00a77%s: %s",
-                        category.getDisplayName(lang.getCurrentLanguage()), status));
+                        categoryName(category), status));
             }
         }
 
         player.sendMessage(lang.get("silent.list_hint"));
+    }
+
+    private String categoryName(AlertCategory category) {
+        return lang.get("silent.category_" + category.name().toLowerCase(java.util.Locale.ROOT));
     }
 
     @Override

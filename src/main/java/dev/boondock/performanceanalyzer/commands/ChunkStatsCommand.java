@@ -4,6 +4,7 @@ import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.ChunkTracker;
 import dev.boondock.performanceanalyzer.analysis.ChunkTracker.*;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -41,10 +42,20 @@ public class ChunkStatsCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // Folia: the overview and the problem scan read every world's loaded
+        // chunks from one thread, which is illegal there. "frequent" and
+        // "clear" only touch this plugin's own counters and stay available.
+        String sub = args.length == 0 ? "" : args[0].toLowerCase();
+        boolean scansWorlds = !List.of("frequent", "thrashing", "clear", "reset").contains(sub);
+        if (Scheduling.FOLIA && scansWorlds) {
+            sender.sendMessage(lang().get("general.folia_unsupported"));
+            return true;
+        }
+
         if (args.length == 0) {
             showOverview(sender);
         } else {
-            switch (args[0].toLowerCase()) {
+            switch (sub) {
                 case "problems", "problematic" -> showProblematicChunks(sender);
                 case "frequent", "thrashing" -> showFrequentlyLoaded(sender);
                 case "clear", "reset" -> clearHistory(sender);

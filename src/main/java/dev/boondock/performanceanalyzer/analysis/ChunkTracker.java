@@ -86,7 +86,7 @@ public class ChunkTracker implements Listener {
                 .recordLoad(event.isNewChunk());
 
         // Track if this is a potentially problematic chunk
-        int tileEntities = chunk.getTileEntities().length;
+        int tileEntities = chunk.getTileEntities(false).length;
         int entities = chunk.getEntities().length;
 
         if (tileEntities >= tileEntityWarning || entities >= entityWarning) {
@@ -154,7 +154,7 @@ public class ChunkTracker implements Listener {
 
         for (World world : Bukkit.getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
-                int tileEntities = chunk.getTileEntities().length;
+                int tileEntities = chunk.getTileEntities(false).length;
                 int entities = chunk.getEntities().length;
 
                 if (tileEntities >= tileEntityWarning || entities >= entityWarning) {
@@ -324,18 +324,9 @@ public class ChunkTracker implements Listener {
             long newChunksGenerated
     ) {}
 
+    /** Display names come from the language files (chunkstats.type_*). */
     public enum ChunkProblemType {
-        HIGH_TILE_ENTITIES("Viele Block-Entities"),
-        HIGH_ENTITIES("Viele Entities");
-
-        private final String displayName;
-
-        ChunkProblemType(String displayName) {
-            this.displayName = displayName;
-        }
-
-        public String getDisplayName() {
-            return displayName;
-        }
+        HIGH_TILE_ENTITIES,
+        HIGH_ENTITIES
     }
 }

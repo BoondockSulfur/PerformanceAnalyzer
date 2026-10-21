@@ -30,8 +30,17 @@ public class PluginConfig {
     private final JavaPlugin plugin;
     private FileConfiguration cfg;
     private final AsyncConfigSaver asyncSaver;
-    /** True when the in-memory config differs from disk (pending save). */
-    private volatile boolean dirty;
+    /*
+     * Change tracking for the shutdown save. Every change bumps
+     * changeGeneration; a finished async save records the generation it
+     * covered. The in-memory config is dirty only while some change has not
+     * reached disk yet. A plain flag that was never cleared again made every
+     * shutdown after the first /perfsilent overwrite hand edits of config.yml.
+     */
+    private final java.util.concurrent.atomic.AtomicLong changeGeneration =
+            new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong savedGeneration =
+            new java.util.concurrent.atomic.AtomicLong();
 
     public PluginConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -116,27 +125,19 @@ public class PluginConfig {
         if (!cfg.isSet("performance.debug_mode")) {
             cfg.set("performance.debug_mode", false);
             changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: performance.debug_mode");
+            plugin.getLogger().info("[Config] New entry added: performance.debug_mode");
         }
 
         // v1.2.0 - Discord settings
         if (!cfg.isSet("discord.enabled")) {
             cfg.set("discord.enabled", false);
             changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.enabled");
+            plugin.getLogger().info("[Config] New entry added: discord.enabled");
         }
         if (!cfg.isSet("discord.webhook_url")) {
             cfg.set("discord.webhook_url", "");
             changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.webhook_url");
-        }
-        if (!cfg.isSet("discord.alert_types")) {
-            cfg.set("discord.alert_types.high_mspt", true);
-            cfg.set("discord.alert_types.tps_drop", true);
-            cfg.set("discord.alert_types.high_heap", true);
-            cfg.set("discord.alert_types.packet_flood", true);
-            changed = true;
-            plugin.getLogger().info("[Config] Neuer Eintrag hinzugefuegt: discord.alert_types");
+            plugin.getLogger().info("[Config] New entry added: discord.webhook_url");
         }
 
         // v2.0.0 - Lag Analysis settings (performance optimization)
@@ -273,11 +274,12 @@ public class PluginConfig {
             plugin.getLogger().info("[Config] New entry added: attribution.expensive_commands");
         }
 
-        // The alert_types block above is only created when absent as a whole -
-        // configs that already carry it never received the v3.1.0 incident
-        // types, so each subkey is checked individually.
+        // Each alert type is checked individually. The block used to be added
+        // as a whole, with the v2 types high_mspt/tps_drop/high_heap that
+        // removeObsoleteKeys() deletes again on the next start.
         for (String alertType : new String[]{
-                "incident_opened", "incident_escalated", "incident_resolved", "performance"}) {
+                "incident_opened", "incident_escalated", "incident_resolved", "performance",
+                "packet_flood"}) {
             String path = "discord.alert_types." + alertType;
             if (!cfg.isSet(path)) {
                 cfg.set(path, true);
@@ -518,9 +520,14 @@ public class PluginConfig {
         requestSave();
     }
 
-    private void requestSave() {
-        dirty = true;
-        asyncSaver.saveAsync();
+    private CompletableFuture<Void> requestSave() {
+        long generation = changeGeneration.incrementAndGet();
+        return asyncSaver.saveAsync()
+                .thenRun(() -> savedGeneration.accumulateAndGet(generation, Math::max));
+    }
+
+    private boolean isDirty() {
+        return savedGeneration.get() < changeGeneration.get();
     }
 
     /* ------------------------------------------------------------------ */
@@ -573,9 +580,9 @@ public class PluginConfig {
             Files.copy(backup.toPath(),
                     new File(plugin.getDataFolder(), "config.yml").toPath(),
                     StandardCopyOption.REPLACE_EXISTING);
-            // The in-memory copy is stale now; drop the dirty flag so the
-            // shutdown save cannot write it back over the restored file.
-            dirty = false;
+            // The in-memory copy is stale now; mark everything as saved so
+            // the shutdown save cannot write it back over the restored file.
+            savedGeneration.accumulateAndGet(changeGeneration.get(), Math::max);
             return true;
         } catch (IOException e) {
             plugin.getLogger().warning("[Config] Could not restore calibration backup: " + e.getMessage());
@@ -590,8 +597,7 @@ public class PluginConfig {
      */
     public CompletableFuture<Void> applyCalibration(Map<String, Object> values) {
         values.forEach(cfg::set);
-        dirty = true;
-        return asyncSaver.saveAsync();
+        return requestSave();
     }
 
     /**
@@ -602,11 +608,11 @@ public class PluginConfig {
      * was wiped by the shutdown save).
      */
     public void saveSyncOnShutdown() {
-        if (!dirty) {
+        if (!isDirty()) {
             plugin.getLogger().fine("[Config] No pending changes, skipping shutdown save");
             return;
         }
         asyncSaver.saveSyncOnShutdown();
-        dirty = false;
+        savedGeneration.accumulateAndGet(changeGeneration.get(), Math::max);
     }
 }

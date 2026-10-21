@@ -84,12 +84,12 @@ about your performance numbers). Opt out globally for all plugins in
 | `/perfstatus` | – | Live severity, score, TPS/MSPT percentiles, GC, baseline | `performance.status` | everyone |
 | `/perfhistory [minutes]` | – | Aggregated history (async, clamped range) | `performance.history` | op |
 | `/perfgui` | – | Interactive GUI dashboard | `performance.gui` | op |
-| `/perfincidents [n\|clear]` | `pi`, `perfdrops`, `incidents` | Recent incidents with causes and severity | `performance.admin` | op |
+| `/perfincidents [n\|clear]` | `pi`, `perfdrops` | Recent incidents with causes and severity | `performance.admin` | op |
 | `/worldstats [world]` | `ws` | Per-world statistics | `performance.admin` | op |
 | `/entitystats [world\|hotspots]` | `es` | Entity analysis | `performance.admin` | op |
 | `/chunkstats [problems\|frequent\|clear]` | `cs` | Chunk statistics | `performance.admin` | op |
-| `/perfsilent [all\|performance\|list]` | `ps`, `silent` | Toggle alert notifications (streamer mode) | `performance.admin` | op |
-| `/perfcalibrate [apply\|revert]` | – | Derive thresholds from what this server actually did | `performance.admin` | op |
+| `/perfsilent [all\|performance\|list]` | – | Toggle alert notifications (streamer mode) | `performance.admin` | op |
+| `/perfcalibrate [apply\|revert]` | `pc` | Derive thresholds from what this server actually did | `performance.admin` | op |
 | `/perfreload` | – | Reload configuration, including the packet-analysis, listener-timing and REST-API switches | `performance.admin` | op |
 
 Additional permission: `performance.alerts` (default op) — receives in-game incident alerts.

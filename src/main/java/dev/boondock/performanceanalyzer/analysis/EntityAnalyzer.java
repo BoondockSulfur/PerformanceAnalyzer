@@ -98,12 +98,13 @@ public class EntityAnalyzer {
         Map<EntityType, Integer> counts = new EnumMap<>(EntityType.class);
         Map<EntityCategory, Integer> categories = new EnumMap<>(EntityCategory.class);
 
-        for (Entity entity : world.getEntities()) {
+        List<Entity> entities = world.getEntities();
+        for (Entity entity : entities) {
             counts.merge(entity.getType(), 1, Integer::sum);
             categories.merge(categorize(entity.getType()), 1, Integer::sum);
         }
 
-        int totalEntities = world.getEntities().size();
+        int totalEntities = entities.size();
         int worldCriticalThreshold = config.worldEntityCritical();
         int worldWarningThreshold = config.worldEntityWarning();
         HealthStatus status = totalEntities >= worldCriticalThreshold ? HealthStatus.CRITICAL

@@ -10,7 +10,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.DoubleConsumer;
 
@@ -56,7 +55,9 @@ public final class TickTimeSampler implements Listener {
     // which the percentile math tolerates — correctness is not tick-priced.
     private final long[] sampleEndNanos = new long[CAPACITY];
     private final float[] sampleDurationMs = new float[CAPACITY];
-    private final AtomicInteger cursor = new AtomicInteger();
+    // long, not int: at 20 samples per second an int cursor overflows after
+    // about 3.4 years and turns the buffer size negative.
+    private final AtomicLong cursor = new AtomicLong();
 
     private volatile double spikeThresholdMs = 100.0;
     private volatile DoubleConsumer spikeCallback;
@@ -166,7 +167,7 @@ public final class TickTimeSampler implements Listener {
     }
 
     private void record(long endNanos, double durationMs) {
-        int slot = Math.floorMod(cursor.getAndIncrement(), CAPACITY);
+        int slot = (int) Math.floorMod(cursor.getAndIncrement(), (long) CAPACITY);
         sampleDurationMs[slot] = (float) durationMs;
         sampleEndNanos[slot] = endNanos;
 
@@ -227,7 +228,7 @@ public final class TickTimeSampler implements Listener {
         long cut10s = now - 10_000_000_000L;
         long cut60s = now - 60_000_000_000L;
 
-        int size = Math.min(cursor.get(), CAPACITY);
+        int size = (int) Math.min(cursor.get(), CAPACITY);
         if (size == 0) {
             return TickStats.EMPTY;
         }

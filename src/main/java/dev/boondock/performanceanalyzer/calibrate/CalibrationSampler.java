@@ -111,7 +111,7 @@ public final class CalibrationSampler {
             int worldEntities = 0;
             for (Chunk chunk : loaded) {
                 int entities = chunk.getEntities().length;
-                int tiles = chunk.getTileEntities().length;
+                int tiles = chunk.getTileEntities(false).length;
                 entitiesPerChunk.record(entities);
                 tilesPerChunk.record(tiles);
                 worldEntities += entities;

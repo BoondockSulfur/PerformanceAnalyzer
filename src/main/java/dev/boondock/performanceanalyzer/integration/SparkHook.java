@@ -26,9 +26,9 @@ public class SparkHook {
         try {
             this.spark = SparkProvider.get();
             this.available = true;
-            plugin.getLogger().info("[Spark] Integration erfolgreich! Spark-Daten werden verwendet.");
+            plugin.getLogger().info("[Spark] Hooked - using spark data.");
         } catch (Exception e) {
-            plugin.getLogger().warning("[Spark] Konnte Spark API nicht laden: " + e.getMessage());
+            plugin.getLogger().warning("[Spark] Could not load the spark API: " + e.getMessage());
             this.available = false;
         }
     }
@@ -38,7 +38,7 @@ public class SparkHook {
      */
     public static SparkHook tryHook(Plugin plugin) {
         if (Bukkit.getPluginManager().getPlugin("spark") == null) {
-            plugin.getLogger().info("[Spark] Spark nicht installiert. Verwende eigene TPS-Berechnung.");
+            plugin.getLogger().info("[Spark] spark not installed - using built-in measurements.");
             return null;
         }
 
@@ -47,7 +47,7 @@ public class SparkHook {
             Class.forName("me.lucko.spark.api.SparkProvider");
             return new SparkHook(plugin);
         } catch (ClassNotFoundException e) {
-            plugin.getLogger().warning("[Spark] Spark API nicht gefunden. Verwende eigene TPS-Berechnung.");
+            plugin.getLogger().warning("[Spark] spark API not found - using built-in measurements.");
             return null;
         }
     }
@@ -73,7 +73,7 @@ public class SparkHook {
             }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("performance.debug_mode", false)) {
-                plugin.getLogger().warning("[Spark] Fehler beim Abrufen der TPS: " + e.getMessage());
+                plugin.getLogger().warning("[Spark] Failed to read TPS: " + e.getMessage());
             }
         }
         return -1;
@@ -94,7 +94,7 @@ public class SparkHook {
             }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("performance.debug_mode", false)) {
-                plugin.getLogger().warning("[Spark] Fehler beim Abrufen der TPS: " + e.getMessage());
+                plugin.getLogger().warning("[Spark] Failed to read TPS: " + e.getMessage());
             }
         }
         return -1;
@@ -114,7 +114,7 @@ public class SparkHook {
             }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("performance.debug_mode", false)) {
-                plugin.getLogger().warning("[Spark] Fehler beim Abrufen der MSPT: " + e.getMessage());
+                plugin.getLogger().warning("[Spark] Failed to read MSPT: " + e.getMessage());
             }
         }
         return null;
@@ -161,7 +161,7 @@ public class SparkHook {
             }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("performance.debug_mode", false)) {
-                plugin.getLogger().warning("[Spark] Fehler beim Abrufen der CPU-Auslastung: " + e.getMessage());
+                plugin.getLogger().warning("[Spark] Failed to read system CPU: " + e.getMessage());
             }
         }
         return -1;
@@ -181,7 +181,7 @@ public class SparkHook {
             }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("performance.debug_mode", false)) {
-                plugin.getLogger().warning("[Spark] Fehler beim Abrufen der Prozess-CPU: " + e.getMessage());
+                plugin.getLogger().warning("[Spark] Failed to read process CPU: " + e.getMessage());
             }
         }
         return -1;

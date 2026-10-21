@@ -50,7 +50,8 @@ public class WorldStatsManager {
      * Get statistics for a specific world.
      */
     public WorldStats getWorldStats(World world) {
-        int entityCount = world.getEntities().size();
+        List<Entity> entities = world.getEntities();
+        int entityCount = entities.size();
         int playerCount = world.getPlayers().size();
         int loadedChunks = world.getLoadedChunks().length;
         int tileEntityCount = countTileEntities(world);
@@ -59,7 +60,7 @@ public class WorldStatsManager {
         double entityDensity = loadedChunks > 0 ? (double) entityCount / loadedChunks : 0;
 
         // Get top entity types in this world
-        Map<EntityType, Integer> entityBreakdown = getEntityBreakdown(world);
+        Map<EntityType, Integer> entityBreakdown = countByType(entities);
         List<Map.Entry<EntityType, Integer>> topEntities = entityBreakdown.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
                 .limit(5)
@@ -83,7 +84,7 @@ public class WorldStatsManager {
     private int countTileEntities(World world) {
         int count = 0;
         for (Chunk chunk : world.getLoadedChunks()) {
-            count += chunk.getTileEntities().length;
+            count += chunk.getTileEntities(false).length;
         }
         return count;
     }
@@ -92,8 +93,12 @@ public class WorldStatsManager {
      * Get breakdown of entity types in a world.
      */
     public Map<EntityType, Integer> getEntityBreakdown(World world) {
+        return countByType(world.getEntities());
+    }
+
+    private static Map<EntityType, Integer> countByType(List<Entity> entities) {
         Map<EntityType, Integer> counts = new EnumMap<>(EntityType.class);
-        for (Entity entity : world.getEntities()) {
+        for (Entity entity : entities) {
             counts.merge(entity.getType(), 1, Integer::sum);
         }
         return counts;
@@ -113,7 +118,7 @@ public class WorldStatsManager {
                         chunk.getX(),
                         chunk.getZ(),
                         entities.length,
-                        chunk.getTileEntities().length
+                        chunk.getTileEntities(false).length
                 ));
             }
         }
@@ -379,6 +384,9 @@ public class WorldStatsManager {
 
         int first = values[0];
         int last = values[values.length - 1];
+        if (first == 0) {
+            return last > 0 ? "INCREASING" : "STABLE";
+        }
         double change = ((double) last - first) / first;
 
         if (change > 0.1) return "INCREASING"; // +10%

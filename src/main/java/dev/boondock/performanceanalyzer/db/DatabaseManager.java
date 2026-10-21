@@ -45,22 +45,15 @@ public class DatabaseManager {
     public void init() {
         HikariConfig hc = new HikariConfig();
         String type = config.dbType().toLowerCase();
+        if ("mysql".equals(type) && !isMySqlDriverAvailable()) {
+            // Falling back keeps detection, alerts and the REST API alive;
+            // throwing here used to take the whole plugin down for a
+            // missing optional driver.
+            logMissingMySqlDriver();
+            type = "sqlite";
+        }
         switch (type) {
             case "mysql":
-                // Check if MySQL driver is available
-                if (!isMySqlDriverAvailable()) {
-                    plugin.getLogger().severe("===========================================");
-                    plugin.getLogger().severe("MySQL was configured as database,");
-                    plugin.getLogger().severe("but the MySQL JDBC driver is not available!");
-                    plugin.getLogger().severe("");
-                    plugin.getLogger().severe("Solution: Download MySQL Connector/J and");
-                    plugin.getLogger().severe("place it in the 'plugins' or 'libraries' folder.");
-                    plugin.getLogger().severe("Download: https://dev.mysql.com/downloads/connector/j/");
-                    plugin.getLogger().severe("");
-                    plugin.getLogger().severe("Alternative: Switch to SQLite in config.yml");
-                    plugin.getLogger().severe("===========================================");
-                    throw new RuntimeException("MySQL JDBC driver not found! Please install mysql-connector-j or switch to SQLite.");
-                }
                 hc.setJdbcUrl("jdbc:mysql://" + config.dbHost() + ":" + config.dbPort() + "/" + config.dbName() + "?useSSL=true&requireSSL=false&serverTimezone=UTC");
                 hc.setUsername(config.dbUser());
                 hc.setPassword(config.dbPassword());
@@ -76,8 +69,16 @@ public class DatabaseManager {
                 this.isMySQL = false;
                 break;
         }
-        hc.setMaximumPoolSize(config.poolMax());
-        hc.setMinimumIdle(config.poolMinIdle());
+        if (isMySQL) {
+            hc.setMaximumPoolSize(config.poolMax());
+            hc.setMinimumIdle(config.poolMinIdle());
+        } else {
+            // SQLite allows one writer at a time; a pool of ten only turns
+            // concurrent flushes and queries into SQLITE_BUSY errors. One
+            // connection makes callers queue inside Hikari instead.
+            hc.setMaximumPoolSize(1);
+            hc.setMinimumIdle(1);
+        }
         hc.setConnectionTimeout(config.poolConnTimeoutMs());
         hc.setPoolName("PerfAnalyzerPool");
         this.ds = new HikariDataSource(hc);
@@ -100,11 +101,11 @@ public class DatabaseManager {
         // - WHERE log_type = ? AND ts >= ?  (getRecentMspt, getAverageByType, countPerformanceSpikes)
         // - ORDER BY ts ASC/DESC
         // The (log_type, ts) composite index allows efficient filtering and sorting
-        run("CREATE INDEX IF NOT EXISTS idx_logs_type_ts ON performance_logs(log_type, ts)");
+        createIndex("idx_logs_type_ts", "log_type, ts");
 
         // Additional index for timestamp-only queries (optional, for cleanOldData)
         // Helps with DELETE operations based on timestamp
-        run("CREATE INDEX IF NOT EXISTS idx_logs_ts ON performance_logs(ts)");
+        createIndex("idx_logs_ts", "ts");
 
         // Async Flush Task
         long periodMs = Math.max(1, config.logIntervalSeconds()) * 1000L;
@@ -173,7 +174,7 @@ public class DatabaseManager {
      *
      * @return number of entries written to the database or the fallback file
      */
-    private int flushBatchSafe() {
+    private synchronized int flushBatchSafe() {
         List<LogEntry> batch = drainBatch();
         if (batch.isEmpty()) {
             return 0;
@@ -308,6 +309,45 @@ public class DatabaseManager {
             plugin.getLogger().severe("Failed SQL: " + sql);
             e.printStackTrace();
         }
+    }
+
+    /**
+     * {@code CREATE INDEX IF NOT EXISTS} is SQLite and MariaDB syntax; MySQL
+     * rejects it, so there the index is created only when information_schema
+     * does not list it yet.
+     */
+    private void createIndex(String name, String columns) {
+        if (!isMySQL) {
+            run("CREATE INDEX IF NOT EXISTS " + name + " ON performance_logs(" + columns + ")");
+            return;
+        }
+        String check = "SELECT COUNT(*) FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'performance_logs' AND index_name = ?";
+        try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(check)) {
+            ps.setString(1, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() && rs.getInt(1) > 0) {
+                    return;
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("DB-Init-Error: could not check index " + name + ": " + e.getMessage());
+            return;
+        }
+        run("CREATE INDEX " + name + " ON performance_logs(" + columns + ")");
+    }
+
+    private void logMissingMySqlDriver() {
+        plugin.getLogger().severe("===========================================");
+        plugin.getLogger().severe("MySQL was configured as database,");
+        plugin.getLogger().severe("but the MySQL JDBC driver is not available!");
+        plugin.getLogger().severe("");
+        plugin.getLogger().severe("Solution: Download MySQL Connector/J and");
+        plugin.getLogger().severe("place it in the 'plugins' or 'libraries' folder.");
+        plugin.getLogger().severe("Download: https://dev.mysql.com/downloads/connector/j/");
+        plugin.getLogger().severe("");
+        plugin.getLogger().severe("Falling back to SQLite (" + config.sqliteFile() + ") for now.");
+        plugin.getLogger().severe("===========================================");
     }
 
     /**

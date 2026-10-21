@@ -4,6 +4,7 @@ import dev.boondock.performanceanalyzer.PerformanceAnalyzer;
 import dev.boondock.performanceanalyzer.analysis.WorldStatsManager;
 import dev.boondock.performanceanalyzer.analysis.WorldStatsManager.*;
 import dev.boondock.performanceanalyzer.lang.LanguageManager;
+import dev.boondock.performanceanalyzer.platform.Scheduling;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -42,6 +43,14 @@ public class WorldStatsCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("performance.admin")) {
             sender.sendMessage(lang().get("general.no_permission"));
+            return true;
+        }
+
+        // Folia: walking every world's entities and chunks from one thread
+        // is illegal there; the measured hot chunks in /perfincidents and the
+        // REST API are the location signal on Folia.
+        if (Scheduling.FOLIA) {
+            sender.sendMessage(lang().get("general.folia_unsupported"));
             return true;
         }
 

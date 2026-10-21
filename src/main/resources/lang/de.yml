@@ -5,13 +5,14 @@
 # Allgemeine Nachrichten
 # ===================
 general:
-  no_permission: "&cDafuer hast du keine Berechtigung."
-  player_only: "&cDieser Command ist nur fuer Spieler verfuegbar."
+  no_permission: "&cDafür hast du keine Berechtigung."
+  player_only: "&cDieser Command ist nur für Spieler verfügbar."
   player_not_found: "&cSpieler nicht gefunden: %player%"
   reload_start: "&ePlugin wird neu geladen..."
   reload_success: "&aPerformanceAnalyzer erfolgreich neu geladen!"
   reload_error: "&cFehler beim Neuladen: %error%"
   unknown_error: "&cEin unbekannter Fehler ist aufgetreten."
+  folia_unsupported: "&cAuf Folia nicht verfügbar - dieser Scan müsste alle Welten von einem Thread aus durchgehen. Gemessene Hot-Chunks zeigt /perfincidents."
 
 # ===================
 # Performance Status
@@ -34,11 +35,11 @@ status:
 # ===================
 history:
   title: "&aPerformance-Verlauf (letzte %minutes% Minuten)"
-  invalid_time: "&cUngueltige Zeitangabe. Nutze: /perfhistory [Minuten]"
+  invalid_time: "&cUngültige Zeitangabe. Nutze: /perfhistory [Minuten]"
   mspt_history: "&7MSPT-Verlauf: &f%sparkline%"
   live_avg: "&7Live - Durchschnitt: &f%value% ms"
   db_avg: "&7DB (%minutes% min) - Durchschnitt: &f%value% ms"
-  spikes_warning: "&eAchtung: &f%count% Performance-Spikes ueber %threshold% ms"
+  spikes_warning: "&eAchtung: &f%count% Performance-Spikes über %threshold% ms"
 # ===================
 # Alerts
 # ===================
@@ -50,7 +51,7 @@ alerts:
   format: "&c[Performance Alert] &e%type%: &f%message% (Wert: %value%)"
 
 # ===================
-# GUI - Hauptmenue
+# GUI - Hauptmenü
 # ===================
 gui:
   main_title: "&aPerformance Analyzer"
@@ -59,13 +60,13 @@ gui:
   live_performance_lore2: "&eKlicken zum Aktualisieren"
   settings: "&eEinstellungen"
   settings_lore1: "&7Plugin-Konfiguration"
-  settings_lore2: "&cNur fuer Admins"
+  settings_lore2: "&cNur für Admins"
   reload: "&6Plugin Neu Laden"
   reload_lore: "&7Konfiguration neu laden"
-  close: "&cSchliessen"
-  close_lore: "&7GUI schliessen"
-  back: "&7Zurueck"
-  back_lore: "&eZum Hauptmenue"
+  close: "&cSchließen"
+  close_lore: "&7GUI schließen"
+  back: "&7Zurück"
+  back_lore: "&eZum Hauptmenü"
   refresh: "&a&lAktualisieren"
   refresh_lore: "&7Angezeigte Daten neu laden"
   data_refreshed: "&aDaten aktualisiert!"
@@ -79,7 +80,7 @@ gui:
   nav_lag: "&6&lLag-Analyse"
   nav_lag_lore: "&7Gemessene Plugin-Last & aktivste Spieler"
   nav_incidents: "&c&lIncidents"
-  nav_incidents_lore: "&7Letzte Performance-Vorfaelle mit Ursachen"
+  nav_incidents_lore: "&7Letzte Performance-Vorfälle mit Ursachen"
 
 # ===================
 # GUI - Lag-Analyse
@@ -87,18 +88,18 @@ gui:
 gui_lag:
   title: "&6Lag-Analyse"
   players_header: "&e&lAktivste Spieler"
-  players_header_lore1: "&7Top 5 nach Aktivitaet der letzten 10s"
+  players_header_lore1: "&7Top 5 nach Aktivität der letzten 10s"
   players_header_lore2: "&7(Block-Interaktionen, Bewegung, Commands)"
   players_disabled: "&cSpieler-Tracking deaktiviert"
   players_disabled_lore1: "&7Aktiviere in der config.yml:"
   players_disabled_lore2: "&elag_analysis.player_tracking: true"
   no_player_data: "&7Noch keine Daten"
-  no_player_data_lore: "&7Warte auf Spieleraktivitaet..."
-  player_blocks: "&7Bloecke abgebaut/platziert: &f%breaks%&7/&f%places%"
+  no_player_data_lore: "&7Warte auf Spieleraktivität..."
+  player_blocks: "&7Blöcke abgebaut/platziert: &f%breaks%&7/&f%places%"
   player_moves: "&7Bewegungen: &f%moves%"
   player_commands: "&7Commands: &f%commands%"
   player_interactions: "&7Interaktionen: &f%interactions%"
-  player_score: "&6Aktivitaets-Score: &e%score%"
+  player_score: "&6Aktivitäts-Score: &e%score%"
   plugins_header: "&c&lPlugin-Last (gemessen)"
   plugins_header_lore1: "&7Echte Zeit in Event-Listenern"
   plugins_header_lore2: "&7pro Plugin, schwerste zuerst"
@@ -110,9 +111,9 @@ gui_lag:
   plugin_load: "&7Gemessen: &f%ms% ms/s &7(%percent%% eines Threads)"
   plugin_calls: "&7Listener-Aufrufe: &f%calls%/s"
   plugin_top_event: "&7Teuerstes Event: &f%event% &7(%ms% ms/s)"
-  clear: "&c&lDaten zuruecksetzen"
-  clear_lore: "&7Loescht alle Spieler-Aktivitaetsdaten"
-  cleared: "&aAktivitaetsdaten zurueckgesetzt!"
+  clear: "&c&lDaten zurücksetzen"
+  clear_lore: "&7Löscht alle Spieler-Aktivitätsdaten"
+  cleared: "&aAktivitätsdaten zurückgesetzt!"
 
 # ===================
 # GUI - Incidents
@@ -120,15 +121,15 @@ gui_lag:
 gui_incidents:
   title: "&cPerformance-Incidents"
   none: "&a&lKeine Incidents!"
-  none_lore: "&7Der Server laeuft ohne Vorfaelle."
+  none_lore: "&7Der Server läuft ohne Vorfälle."
   entry: "&c&lIncident #%number%"
   lore_severity: "%color%%severity% &7(Score %score%/100)"
   lore_time: "&7Start: &f%start% &7| Dauer: &f%duration%"
   lore_metrics: "&7Schlimmster Tick: &f%worst% ms &7| Niedrigste TPS: &f%tps%"
   lore_cause: "&7Ursache: &f%cause%"
-  lore_click: "&eKlicken fuer Details (Chat)"
-  clear: "&c&lVerlauf loeschen"
-  clear_lore: "&7Loescht alle abgeschlossenen Incidents"
+  lore_click: "&eKlicken für Details (Chat)"
+  clear: "&c&lVerlauf löschen"
+  clear_lore: "&7Löscht alle abgeschlossenen Incidents"
 
 # ===================
 # GUI - Config
@@ -144,7 +145,7 @@ gui_config:
   listener_timings: "&6Listener-Timings"
   listener_timings_lore: "&7Misst die echte Zeit in Event-Listenern anderer Plugins"
   requires_restart: "&8Wirkt nach Neustart oder /perfreload"
-  setting_changed: "&aEinstellung geaendert: &f%setting%"
+  setting_changed: "&aEinstellung geändert: &f%setting%"
   status_enabled: "&aAktiviert"
   status_disabled: "&cDeaktiviert"
   status_format: "&7Status: %status%"
@@ -170,7 +171,7 @@ worldstats:
   server_summary: "&7Welten: &f%worlds% &7| Entities: &f%entities% &7| Chunks: &f%chunks% &7| Tiles: &f%tiles%"
   avg_density: "&7Durchschn. Entity-Dichte: &f%density% &7pro Chunk"
   world_entry: "%status%&f%world% &7(%type%) - Entities: &f%entities% &7| Chunks: &f%chunks% &7| Dichte: &f%density%"
-  hint_details: "&7Nutze &f/worldstats <welt> &7fuer Details."
+  hint_details: "&7Nutze &f/worldstats <welt> &7für Details."
   world_not_found: "&cWelt nicht gefunden: %world%"
   detail_header: "&a&m-----&r &aWelt: %world% &a&m-----"
   detail_type: "&7Typ: &f%type%"
@@ -208,7 +209,7 @@ entitystats:
   top_entities: "&7&lTop Entity-Typen:"
   entity_entry: "  &f%type%: &e%count%"
   hotspot_preview: "&c%count% Hotspots erkannt!"
-  hint_hotspots: "&7Nutze &f/entitystats hotspots &7fuer Details."
+  hint_hotspots: "&7Nutze &f/entitystats hotspots &7für Details."
   world_header: "&a&m-----&r &aWelt: %world% &a&m-----"
   world_status: "&7Status: %status%"
   status_healthy: "Gesund"
@@ -226,13 +227,13 @@ chunkstats:
   header: "&a&m-----&r &aChunk-Statistiken &a&m-----"
   total_loaded: "&7Geladene Chunks: &f%count%"
   force_loaded: "&7Force-geladene Chunks: &f%count%"
-  loads_minute: "&7Ladevorgaenge/Minute: &f%count%"
-  total_loads: "&7Ladevorgaenge (Sitzung): &f%count%"
-  total_unloads: "&7Entladevorgaenge (Sitzung): &f%count%"
+  loads_minute: "&7Ladevorgänge/Minute: &f%count%"
+  total_loads: "&7Ladevorgänge (Sitzung): &f%count%"
+  total_unloads: "&7Entladevorgänge (Sitzung): &f%count%"
   per_world: "&7&lPro Welt:"
   world_entry: "  &f%world%: &e%loaded% &7geladen | &e%force% &7force | &e%generated% &7neu"
-  hint_problems: "&7Nutze &f/chunkstats problems &7fuer problematische Chunks."
-  hint_frequent: "&7Nutze &f/chunkstats frequent &7fuer Chunk-Thrashing."
+  hint_problems: "&7Nutze &f/chunkstats problems &7für problematische Chunks."
+  hint_frequent: "&7Nutze &f/chunkstats frequent &7für Chunk-Thrashing."
   no_problems: "&aKeine problematischen Chunks gefunden."
   problems_header: "&c&m-----&r &cProblematische Chunks &c&m-----"
   problem_entry: "&f%world% &7[%x%, %z%] %status%"
@@ -242,28 +243,30 @@ chunkstats:
   force_status: "&c[FORCE]"
   no_frequent: "&aKein Chunk-Thrashing erkannt."
   frequent_header: "&e&m-----&r &eChunk-Thrashing &e&m-----"
-  frequent_info: "&7Diese Chunks werden haeufig ge-/entladen - kann auf Performance-Probleme hinweisen."
-  frequent_entry: "&f%world% &7[%x%, %z%] - &e%loads% Ladevorgaenge"
+  frequent_info: "&7Diese Chunks werden häufig ge-/entladen - kann auf Performance-Probleme hinweisen."
+  frequent_entry: "&f%world% &7[%x%, %z%] - &e%loads% Ladevorgänge"
   frequent_details: "  &7Max Entities: &e%entities% &7| Max Tiles: &e%tiles%"
-  cleared: "&aChunk-Tracking-Verlauf geloescht."
+  cleared: "&aChunk-Tracking-Verlauf gelöscht."
 
 # ===================
 # Silent Mode / Streamer Modus
 # ===================
 silent:
+  category_all: "Alle Alarme"
+  category_performance: "Performance-Warnungen"
   all_muted: "&a[Silent Mode] &fAlle Alerts stumm geschaltet. Nutze &e/perfsilent &fzum Reaktivieren."
   all_unmuted: "&a[Silent Mode] &fAlle Alerts wieder aktiviert."
   category_muted: "&a[Silent Mode] &f%category% &7Alerts stumm geschaltet."
   category_unmuted: "&a[Silent Mode] &f%category% &7Alerts wieder aktiviert."
   unknown_type: "&cUnbekannter Alert-Typ: %type%"
-  available_types: "&7Verfuegbare Typen: &fall, performance"
+  available_types: "&7Verfügbare Typen: &fall, performance"
   list_header: "&e&l--- Alert-Einstellungen ---"
-  receiving_all: "&a  Du erhaeltst alle Alerts."
+  receiving_all: "&a  Du erhältst alle Alerts."
   status_all_muted: "&c  Alle Alerts sind stumm. Nutze &f/perfsilent &czum Reaktivieren."
   status_muted: "Stumm"
   status_active: "Aktiv"
   list_hint: "&7Nutze &f/perfsilent <typ> &7um einzelne Typen umzuschalten."
-  reset: "&a[Silent Mode] &fAlle Einstellungen zurueckgesetzt. Du erhaeltst wieder alle Alerts."
+  reset: "&a[Silent Mode] &fAlle Einstellungen zurückgesetzt. Du erhältst wieder alle Alerts."
 
 # Incident-Alerts (v3.1.0)
 alert:
@@ -279,21 +282,21 @@ incident_cmd:
   none: "&aKeine Performance-Incidents seit dem Server-Start aufgezeichnet."
   entry: "&e#%number% %active%%color%&l%severity%&r &7- %start%, Dauer %duration%, schlimmster Tick %worst% ms, niedrigste TPS %tps% &8| &7%cause%"
   active_tag: "&c[AKTIV]"
-  hint_detail: "&7Nutze &f/perfincidents <Nummer> &7fuer Details."
-  hint_clear: "&7Nutze &f/perfincidents clear &7um den Verlauf zu loeschen."
-  invalid_number: "&cUngueltige Nummer. Nutze 1-%max% oder 'clear'."
-  cleared: "&aIncident-Verlauf geloescht."
+  hint_detail: "&7Nutze &f/perfincidents <Nummer> &7für Details."
+  hint_clear: "&7Nutze &f/perfincidents clear &7um den Verlauf zu löschen."
+  invalid_number: "&cUngültige Nummer. Nutze 1-%max% oder 'clear'."
+  cleared: "&aIncident-Verlauf gelöscht."
   detail_header: "&6&l=== Incident #%number% ==="
   detail_status: "&7Status: %status%"
   status_active: "&c&lAKTIV"
   status_resolved: "&abehoben"
   detail_time: "&7Start: &f%start% &7| Dauer: &f%duration%"
-  detail_peak: "&7Hoechste Stufe: %color%&l%severity%&r &7(Score &f%score%&7/100)"
+  detail_peak: "&7Höchste Stufe: %color%&l%severity%&r &7(Score &f%score%&7/100)"
   detail_metrics: "&7Schlimmster Tick: &f%worst% ms &7| Schlechtester Schnitt: &f%avgworst% ms &7| Niedrigste TPS: &f%tps%"
-  detail_triggers: "&7&lAusgeloest durch:"
+  detail_triggers: "&7&lAusgelöst durch:"
   trigger_entry: "&7 - &f%reason%"
   findings_header: "&7&lBefunde (beste Zuordnung zuerst):"
-  no_findings: "&7Keine Befunde fuer diesen Incident aufgezeichnet."
+  no_findings: "&7Keine Befunde für diesen Incident aufgezeichnet."
   finding_entry: "%color%> %title% %confidence%"
   confidence_measured: "&8[GEMESSEN]"
   confidence_heuristic: "&8[HEURISTIK]"

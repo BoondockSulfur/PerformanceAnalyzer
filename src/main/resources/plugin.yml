@@ -1,5 +1,5 @@
 name: PerformanceAnalyzer
-version: 3.2.1
+version: 3.3.0
 main: dev.boondock.performanceanalyzer.PerformanceAnalyzer
 api-version: '1.21'
 author: BoondockSulfur
@@ -44,17 +44,16 @@ commands:
     description: Shows recent performance incidents with causes and severity.
     usage: /perfincidents [number|clear]
     permission: performance.admin
-    aliases: [pi, perfdrops, incidents]
+    aliases: [pi, perfdrops]
   perfsilent:
     description: Toggle alert notifications (streamer mode).
     usage: /perfsilent [all|performance|list]
     permission: performance.admin
-    aliases: [ps, silent]
   perfcalibrate:
     description: Proposes threshold values derived from this server's own measurements.
     usage: /perfcalibrate [apply|revert]
     permission: performance.admin
-    aliases: [pc, calibrate]
+    aliases: [pc]
 
 permissions:
   performance.status:

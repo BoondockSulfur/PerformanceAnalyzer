@@ -73,6 +73,8 @@ public final class MetricsAPI {
     private HttpServer server;
     private ExecutorService executor;
     private byte[] apiKeyBytes;
+    private String boundAddress;
+    private int boundPort;
 
     public MetricsAPI(Plugin plugin, PluginConfig config, MonitorService monitor,
                       IncidentAnalyzer incidents, ActivityCounters activity,
@@ -146,6 +148,8 @@ public final class MetricsAPI {
         });
         server.setExecutor(executor);
         server.start();
+        this.boundAddress = bind;
+        this.boundPort = port;
 
         plugin.getLogger().info("[API] REST API listening on " + bind + ":" + port);
         if (!"127.0.0.1".equals(bind) && !"localhost".equals(bind)) {
@@ -153,6 +157,15 @@ public final class MetricsAPI {
                     + "the network. Only do this behind a TLS reverse proxy (nginx/caddy).");
         }
         return true;
+    }
+
+    /** True while listening with exactly these settings (no restart needed). */
+    public boolean runsWith(String bind, int port, String key) {
+        return server != null
+                && bind.equals(boundAddress)
+                && port == boundPort
+                && key != null
+                && MessageDigest.isEqual(key.getBytes(StandardCharsets.UTF_8), apiKeyBytes);
     }
 
     /** Stop the API server and its executor. Safe to call when never started. */
