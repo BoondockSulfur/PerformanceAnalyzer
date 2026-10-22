@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity sweeps are rate-limited, and stale sweep results are no longer reported as incident causes.
 - Missing optional database drivers fall back instead of disabling the plugin; SQLite uses one connection; MySQL index creation works.
 - Language reloads no longer show raw keys in alerts; config merging no longer re-adds obsolete v2 alert types.
+- Language-file texts whose placeholders changed between versions fall back to the bundled text instead of showing `%s`/`%d` (named in one log warning).
 
 ### Changed
 - `/chunkstats` overview, `/entitystats` and `/worldstats` are disabled on Folia (cross-region access); `/perfincidents` and the REST API remain the location signal.

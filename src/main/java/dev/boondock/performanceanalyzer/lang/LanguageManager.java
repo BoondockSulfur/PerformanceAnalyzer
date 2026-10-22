@@ -9,8 +9,13 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Manages plugin language/translations.
@@ -90,6 +95,7 @@ public class LanguageManager {
                 loaded.put(key, langConfig.getString(key));
             }
         }
+        replaceOutdatedFormats(loaded, language);
         this.messages = Map.copyOf(loaded);
 
         plugin.getLogger().info("[Lang] Loaded language: " + language + " (" + loaded.size() + " messages)");
@@ -124,6 +130,59 @@ public class LanguageManager {
         } catch (Exception e) {
             plugin.getLogger().warning("[Lang] Could not merge keys: " + e.getMessage());
         }
+    }
+
+    /**
+     * Swaps in the bundled text wherever the file's placeholders no longer
+     * match it. Merging only adds keys, so a text whose arguments changed
+     * between versions stays in the file in its old form, and
+     * {@code String.format} then fails and shows the raw template in the
+     * chat. The file itself is left untouched.
+     */
+    private void replaceOutdatedFormats(Map<String, String> loaded, String language) {
+        InputStream is = plugin.getResource("lang/" + language + ".yml");
+        if (is == null) return;
+        FileConfiguration defaults = YamlConfiguration.loadConfiguration(new InputStreamReader(is, StandardCharsets.UTF_8));
+
+        List<String> replaced = new ArrayList<>();
+        for (Map.Entry<String, String> entry : loaded.entrySet()) {
+            String bundled = defaults.getString(entry.getKey());
+            if (bundled != null && !formatSignature(bundled).equals(formatSignature(entry.getValue()))) {
+                entry.setValue(bundled);
+                replaced.add(entry.getKey());
+            }
+        }
+        if (!replaced.isEmpty()) {
+            Collections.sort(replaced);
+            plugin.getLogger().warning("[Lang] " + language + ".yml: placeholders of " + replaced.size()
+                    + " text(s) are outdated, using the bundled text instead: " + String.join(", ", replaced)
+                    + ". Delete or update these entries to silence this warning.");
+        }
+    }
+
+    /** Named placeholders such as %count%, filled by {@link #get(String, Object...)}. */
+    private static final Pattern NAMED_PLACEHOLDER = Pattern.compile("%[a-zA-Z_]+%");
+    private static final Pattern FORMAT_SPECIFIER =
+            Pattern.compile("%(\\d+\\$)?[-#+0,(<]*\\d*(\\.\\d+)?([a-zA-Z%])");
+
+    /** The conversions of a format string in order, e.g. "s,d,d" for "%s bei %d, %d". */
+    static String formatSignature(String text) {
+        Matcher m = FORMAT_SPECIFIER.matcher(NAMED_PLACEHOLDER.matcher(text).replaceAll(""));
+        StringBuilder sig = new StringBuilder();
+        while (m.find()) {
+            char conversion = m.group(3).charAt(0);
+            if (conversion == '%' || conversion == 'n') {
+                continue;
+            }
+            if (sig.length() > 0) {
+                sig.append(',');
+            }
+            if (m.group(1) != null) {
+                sig.append(m.group(1));
+            }
+            sig.append(Character.toLowerCase(conversion));
+        }
+        return sig.toString();
     }
 
     /**
