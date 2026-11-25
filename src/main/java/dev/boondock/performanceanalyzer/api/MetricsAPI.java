@@ -362,9 +362,77 @@ public final class MetricsAPI {
                 .field("spawns_per_sec", global.spawnsPerSec())
                 .field("chunk_loads_per_sec", global.chunkLoadsPerSec())
                 .field("chunk_gens_per_sec", global.chunkGensPerSec())
+                .field("neighbor_updates_per_sec", global.neighborUpdatesPerSec())
                 .field("tracked_chunks", global.trackedChunks())
                 .field("overflow", global.overflow())
                 .endObj();
+
+        if (plugin instanceof dev.boondock.performanceanalyzer.PerformanceAnalyzer pa) {
+            var sampler = pa.mainThreadSampler();
+            json.name("main_thread").arr();
+            if (sampler != null && sampler.isRunning()) {
+                for (var cost : sampler.costs(6)) {
+                    json.obj()
+                            .field("category", cost.category().name())
+                            .field("target", cost.label())
+                            .field("kind", cost.detail())
+                            .field("ms_per_sec", cost.msPerSec())
+                            .field("percent", cost.percent())
+                            .field("wait", cost.waitKind().name())
+                            .field("wait_percent", cost.waitPercent());
+                    json.name("hotspots").arr();
+                    for (var hotspot : cost.hotspots()) {
+                        json.obj().field("path", hotspot.path()).field("percent", hotspot.percent()).endObj();
+                    }
+                    json.endArr().endObj();
+                }
+            }
+            json.endArr();
+            json.name("slow_ticks").arr();
+            if (sampler != null && sampler.isRunning()) {
+                for (var tick : sampler.allSlowTicks()) {
+                    json.obj()
+                            .field("at_ms", tick.atMs())
+                            .field("duration_ms", tick.durationMs())
+                            .field("category", tick.category().name())
+                            .field("target", tick.label())
+                            .field("kind", tick.detail())
+                            .field("wait", tick.waitKind().name())
+                            .field("between_ticks", tick.betweenTicks())
+                            .field("trigger", tick.trigger().kind().name())
+                            .field("trigger_target", tick.trigger().what())
+                            .field("trigger_via", tick.trigger().via());
+                    json.name("frames").arr();
+                    for (String frame : tick.frames()) {
+                        json.value(frame);
+                    }
+                    json.endArr().endObj();
+                }
+            }
+            json.endArr();
+            var network = pa.network();
+            if (network != null) {
+                var ping = network.snapshot();
+                json.name("network").obj()
+                        .field("players", ping.players())
+                        .field("avg_ping_ms", ping.avgPingMs())
+                        .field("max_ping_ms", ping.worstPingMs())
+                        .field("high_ping_players", ping.highPingPlayers())
+                        .field("spikes_10m", network.spikes(10 * 60_000L).size())
+                        .endObj();
+            }
+            var trend = pa.gc() == null ? null : pa.gc().memoryTrend();
+            if (trend != null && trend.hasData()) {
+                json.name("memory_trend").obj()
+                        .field("floor_mb", trend.floorMb())
+                        .field("slope_mb_per_hour", trend.slopeMbPerHour())
+                        .field("r2", trend.r2())
+                        .field("span_hours", trend.spanHours())
+                        .field("hours_until_full", trend.hoursUntilFull())
+                        .field("leak_suspected", trend.leakSuspected())
+                        .endObj();
+            }
+        }
 
         json.endObj();
         return Response.json(json.toString());
@@ -475,6 +543,7 @@ public final class MetricsAPI {
                     .field("spawns_per_sec", chunk.spawnsPerSec())
                     .field("chunk_loads_per_sec", chunk.chunkLoadsPerSec())
                     .field("chunk_gens_per_sec", chunk.chunkGensPerSec())
+                    .field("neighbor_updates_per_sec", chunk.neighborUpdatesPerSec())
                     .field("score", chunk.score())
                     .endObj();
         }
@@ -534,6 +603,41 @@ public final class MetricsAPI {
         promLine(sb, "performanceanalyzer_activity", "type", "hopper", global.hopperMovesPerSec());
         promLine(sb, "performanceanalyzer_activity", "type", "spawns", global.spawnsPerSec());
         promLine(sb, "performanceanalyzer_activity", "type", "chunk_gen", global.chunkGensPerSec());
+        promLine(sb, "performanceanalyzer_activity", "type", "neighbor_updates", global.neighborUpdatesPerSec());
+
+        if (plugin instanceof dev.boondock.performanceanalyzer.PerformanceAnalyzer pa) {
+            var sampler = pa.mainThreadSampler();
+            if (sampler != null && sampler.isRunning()) {
+                sb.append("# HELP performanceanalyzer_main_thread_ms_per_sec Sampled main-thread time per target (60s).\n");
+                sb.append("# TYPE performanceanalyzer_main_thread_ms_per_sec gauge\n");
+                int n = 0;
+                for (var cost : sampler.costs(6)) {
+                    if (n++ >= 15) {
+                        break;
+                    }
+                    promLine(sb, "performanceanalyzer_main_thread_ms_per_sec", "target",
+                            cost.category().name().toLowerCase(java.util.Locale.ROOT) + ":" + cost.label()
+                                    + (cost.detail().isEmpty() ? "" : ":" + cost.detail().toLowerCase(java.util.Locale.ROOT)),
+                            cost.msPerSec());
+                }
+            }
+            var network = pa.network();
+            if (network != null && network.snapshot().players() > 0) {
+                sb.append("# HELP performanceanalyzer_ping_ms Player ping.\n");
+                sb.append("# TYPE performanceanalyzer_ping_ms gauge\n");
+                promLine(sb, "performanceanalyzer_ping_ms", "stat", "avg", network.snapshot().avgPingMs());
+                promLine(sb, "performanceanalyzer_ping_ms", "stat", "max", network.snapshot().worstPingMs());
+            }
+            var trend = pa.gc() == null ? null : pa.gc().memoryTrend();
+            if (trend != null && trend.hasData()) {
+                sb.append("# HELP performanceanalyzer_oldgen_floor_mb Lowest old-gen usage after GC (10-min buckets).\n");
+                sb.append("# TYPE performanceanalyzer_oldgen_floor_mb gauge\n");
+                promLine(sb, "performanceanalyzer_oldgen_floor_mb", null, null, trend.floorMb());
+                sb.append("# HELP performanceanalyzer_oldgen_floor_slope_mb_per_hour Trend of the old-gen floor.\n");
+                sb.append("# TYPE performanceanalyzer_oldgen_floor_slope_mb_per_hour gauge\n");
+                promLine(sb, "performanceanalyzer_oldgen_floor_slope_mb_per_hour", null, null, trend.slopeMbPerHour());
+            }
+        }
 
         return new Response("text/plain; version=0.0.4; charset=utf-8", sb.toString());
     }

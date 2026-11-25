@@ -20,9 +20,6 @@ import org.bukkit.command.CommandSender;
  */
 public class PerfHistoryCommand implements CommandExecutor {
 
-    /** Tick-work spike threshold for the spike counter (the 50 ms deadline). */
-    private static final double SPIKE_THRESHOLD_MS = 50.0;
-
     private final PerformanceAnalyzer plugin;
     private final MonitorService monitor;
     private final DatabaseManager db;
@@ -64,7 +61,7 @@ public class PerfHistoryCommand implements CommandExecutor {
             try {
                 double[] msptWindow = AsciiSparkline.recentMsptWindow(db, liveAvg, minutesBack);
                 double dbAvg = db.getAverageByType("mspt", minutesBack);
-                int spikes = db.countPerformanceSpikes(SPIKE_THRESHOLD_MS, minutesBack);
+                DatabaseManager.SlowTickSummary slowTicks = db.slowTickSummary(minutesBack);
 
                 reply(sender, lang().get("history.title", "%minutes%", String.valueOf(minutesBack)));
                 reply(sender, lang().get("history.mspt_history",
@@ -76,10 +73,10 @@ public class PerfHistoryCommand implements CommandExecutor {
                             "%minutes%", String.valueOf(minutesBack),
                             "%value%", String.format("%.2f", dbAvg)));
                 }
-                if (spikes > 0) {
-                    reply(sender, lang().get("history.spikes_warning",
-                            "%count%", String.valueOf(spikes),
-                            "%threshold%", String.format("%.0f", SPIKE_THRESHOLD_MS)));
+                if (slowTicks.count() > 0) {
+                    reply(sender, lang().get("history.slow_ticks",
+                            "%count%", String.valueOf(slowTicks.count()),
+                            "%max%", String.format("%.0f", slowTicks.maxMs())));
                 }
             } catch (Exception e) {
                 plugin.getLogger().warning("[History] Query failed: " + e.getMessage());

@@ -30,7 +30,10 @@ public class AlertManager implements IncidentAnalyzer.Listener {
 
     public enum AlertType {
         PERFORMANCE,
-        PACKET_FLOOD
+        PACKET_FLOOD,
+        SERVER_ERROR,
+        NETWORK,
+        MEMORY
     }
 
     private static final Pattern COLOR_CODES = Pattern.compile("§x(§[0-9a-fA-F]){6}|§[0-9a-fk-orA-FK-OR]");
@@ -123,7 +126,14 @@ public class AlertManager implements IncidentAnalyzer.Listener {
         }
         String formatted = severity.color() + "[Performance] §f" + message;
         broadcast(severity, formatted, severity.atLeast(Severity.WARNING));
-        toDiscord(type == AlertType.PACKET_FLOOD ? "packet_flood" : "performance", severity, message, value);
+        String discordType = switch (type) {
+            case PACKET_FLOOD -> "packet_flood";
+            case SERVER_ERROR -> "server_error";
+            case NETWORK -> "network";
+            case MEMORY -> "memory";
+            case PERFORMANCE -> "performance";
+        };
+        toDiscord(discordType, severity, message, value);
     }
 
     /* ------------------------------------------------------------------ */

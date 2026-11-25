@@ -25,6 +25,9 @@ public final class Incident {
     private volatile double worstAvgMspt;
     private volatile double lowestTps = 20.0;
     private volatile List<Finding> findings = List.of();
+    private volatile boolean alertsSuppressed;
+    private volatile List<Finding> openingFindings = List.of();
+    private volatile List<String> profile = List.of();
 
     Incident(long id, long startedAtMs, Severity severity, int score, List<String> triggerReasons) {
         this.id = id;
@@ -58,6 +61,19 @@ public final class Incident {
 
     void setFindings(List<Finding> findings) {
         this.findings = List.copyOf(findings);
+    }
+
+    void setOpeningFindings(List<Finding> findings) {
+        this.openingFindings = List.copyOf(findings);
+    }
+
+    /** Main-thread profile lines from the last refresh while the incident was bad. */
+    void setProfile(List<String> lines) {
+        this.profile = List.copyOf(lines);
+    }
+
+    void suppressAlerts() {
+        this.alertsSuppressed = true;
     }
 
     void resolve(long atMs) {
@@ -105,6 +121,20 @@ public final class Incident {
 
     public double lowestTps() {
         return lowestTps;
+    }
+
+    /** True when alerting for this incident was withheld at open (world save). */
+    public boolean alertsSuppressed() {
+        return alertsSuppressed;
+    }
+
+    /** Findings as they were when the incident opened; later refreshes replace {@link #findings()}. */
+    public List<Finding> openingFindings() {
+        return openingFindings;
+    }
+
+    public List<String> profile() {
+        return profile;
     }
 
     public List<Finding> findings() {

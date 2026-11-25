@@ -98,7 +98,7 @@ public class DatabaseManager {
 
         // PERFORMANCE OPTIMIZATION: Composite index for time-based queries
         // This index is crucial for query performance:
-        // - WHERE log_type = ? AND ts >= ?  (getRecentMspt, getAverageByType, countPerformanceSpikes)
+        // - WHERE log_type = ? AND ts >= ?  (getRecentMspt, getAverageByType, slowTickSummary)
         // - ORDER BY ts ASC/DESC
         // The (log_type, ts) composite index allows efficient filtering and sorting
         createIndex("idx_logs_type_ts", "log_type, ts");
@@ -107,9 +107,7 @@ public class DatabaseManager {
         // Helps with DELETE operations based on timestamp
         createIndex("idx_logs_ts", "ts");
 
-        // Async Flush Task
-        long periodMs = Math.max(1, config.logIntervalSeconds()) * 1000L;
-        this.flushTask = Scheduling.runAsyncRepeating(plugin, this::flushBatchSafe, periodMs, periodMs);
+        scheduleFlush(config.logIntervalSeconds());
 
         // Auto-Cleanup Task (runs daily at server startup + 1 hour, then every 24 hours)
         startAutoCleanup();
@@ -145,6 +143,16 @@ public class DatabaseManager {
     }
 
     /**
+     * (Re)schedules the async flush. Called at init and on /perfreload, so a
+     * changed log_interval_seconds takes effect without a restart.
+     */
+    public synchronized void scheduleFlush(int intervalSeconds) {
+        Scheduling.cancel(flushTask);
+        long periodMs = Math.max(1, intervalSeconds) * 1000L;
+        this.flushTask = Scheduling.runAsyncRepeating(plugin, this::flushBatchSafe, periodMs, periodMs);
+    }
+
+    /**
      * Queue a log entry for asynchronous database insertion.
      * Entries are batched and written periodically to minimize database load.
      *
@@ -159,7 +167,12 @@ public class DatabaseManager {
             }
             return;
         }
-        queue.add(new LogEntry(type, value, description));
+        // description is VARCHAR(255): MySQL in strict mode rejects longer
+        // values, and with them the whole batch.
+        if (description != null && description.length() > 255) {
+            description = description.substring(0, 254) + "…";
+        }
+        queue.add(new LogEntry(type, value, description, System.currentTimeMillis()));
     }
 
     /**
@@ -210,12 +223,12 @@ public class DatabaseManager {
             // Rescue this batch first, then whatever else has piled up.
             int written = 0;
             for (LogEntry entry : batch) {
-                fallbackLogger.log(entry.type(), entry.value(), entry.description());
+                fallbackLogger.log(entry.type(), entry.value(), entry.description(), entry.atMs());
                 written++;
             }
             LogEntry queued;
             while ((queued = queue.poll()) != null) {
-                fallbackLogger.log(queued.type(), queued.value(), queued.description());
+                fallbackLogger.log(queued.type(), queued.value(), queued.description(), queued.atMs());
                 written++;
             }
             plugin.getLogger().info("Logged " + written + " entries to fallback file");
@@ -246,12 +259,22 @@ public class DatabaseManager {
     }
 
     private void writeBatch(List<LogEntry> batch) throws SQLException {
+        // ts is set to "database now minus the entry's age" instead of a
+        // client-side value: entries wait up to log_interval_seconds in the
+        // queue, and stamping them on insert shifted whole batches. Using the
+        // database clock keeps ts in the same zone as the default and as the
+        // NOW()/datetime('now') windows every query compares against.
+        String tsExpr = isMySQL
+                ? "NOW() - INTERVAL ? SECOND"
+                : "datetime('now', '-' || ? || ' seconds')";
+        long now = System.currentTimeMillis();
         try (Connection c = ds.getConnection();
-             PreparedStatement ps = c.prepareStatement("INSERT INTO performance_logs (log_type, value, description) VALUES (?, ?, ?)")) {
+             PreparedStatement ps = c.prepareStatement("INSERT INTO performance_logs (log_type, value, description, ts) VALUES (?, ?, ?, " + tsExpr + ")")) {
             for (LogEntry le : batch) {
                 ps.setString(1, le.type());
                 ps.setDouble(2, le.value());
                 ps.setString(3, le.description());
+                ps.setLong(4, Math.max(0, (now - le.atMs()) / 1000));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -427,29 +450,29 @@ public class DatabaseManager {
         return 0.0;
     }
 
+    /** Slow ticks stored within a time window: how many, and the longest in ms. */
+    public record SlowTickSummary(int count, double maxMs) {
+    }
+
     /**
-     * Finds performance spikes where MSPT exceeded a threshold.
-     * @param spikeThresholdMs MSPT threshold in milliseconds
-     * @param minutesBack Time window
-     * @return Count of spikes
+     * Counts the stored {@code slow_tick} rows. They are written at most once
+     * every 2 seconds, so a burst counts as fewer ticks than it had.
      */
-    public int countPerformanceSpikes(double spikeThresholdMs, int minutesBack) {
-        String sql = "SELECT COUNT(*) as spike_count FROM performance_logs " +
-                     "WHERE log_type = 'mspt' AND value > ? " +
-                     "AND " + getTimeSinceSQL(TimeUnit.MINUTE);
+    public SlowTickSummary slowTickSummary(int minutesBack) {
+        String sql = "SELECT COUNT(*) AS cnt, MAX(value) AS max_ms FROM performance_logs " +
+                     "WHERE log_type = 'slow_tick' AND " + getTimeSinceSQL(TimeUnit.MINUTE);
         try (Connection c = ds.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setDouble(1, spikeThresholdMs);
-            ps.setInt(2, minutesBack);
+            ps.setInt(1, minutesBack);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getInt("spike_count");
+                    return new SlowTickSummary(rs.getInt("cnt"), rs.getDouble("max_ms"));
                 }
             }
         } catch (SQLException e) {
-            plugin.getLogger().severe("Query error (countPerformanceSpikes): " + e.getMessage());
+            plugin.getLogger().severe("Query error (slowTickSummary): " + e.getMessage());
             e.printStackTrace();
         }
-        return 0;
+        return new SlowTickSummary(0, 0.0);
     }
 
     /**

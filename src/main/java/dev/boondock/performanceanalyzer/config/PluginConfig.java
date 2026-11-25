@@ -268,6 +268,46 @@ public class PluginConfig {
             changed = true;
             plugin.getLogger().info("[Config] New entry added: alerts.warning_sustain_seconds");
         }
+        if (!cfg.isSet("lag_analysis.neighbor_updates")) {
+            cfg.set("lag_analysis.neighbor_updates", false);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: lag_analysis.neighbor_updates");
+        }
+        if (!cfg.isSet("lag_analysis.error_detection")) {
+            cfg.set("lag_analysis.error_detection", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: lag_analysis.error_detection");
+        }
+        if (!cfg.isSet("lag_analysis.main_thread_sampling")) {
+            cfg.set("lag_analysis.main_thread_sampling", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: lag_analysis.main_thread_sampling");
+        }
+        if (!cfg.isSet("lag_analysis.sampling_interval_ms")) {
+            cfg.set("lag_analysis.sampling_interval_ms", 20);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: lag_analysis.sampling_interval_ms");
+        }
+        if (!cfg.isSet("lag_analysis.network_sampling")) {
+            cfg.set("lag_analysis.network_sampling", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: lag_analysis.network_sampling");
+        }
+        if (!cfg.isSet("alerts.network_spikes")) {
+            cfg.set("alerts.network_spikes", false);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.network_spikes");
+        }
+        if (!cfg.isSet("alerts.memory_trend")) {
+            cfg.set("alerts.memory_trend", true);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.memory_trend");
+        }
+        if (!cfg.isSet("alerts.server_errors")) {
+            cfg.set("alerts.server_errors", false);
+            changed = true;
+            plugin.getLogger().info("[Config] New entry added: alerts.server_errors");
+        }
         if (!cfg.isSet("attribution.expensive_commands")) {
             cfg.set("attribution.expensive_commands", DEFAULT_EXPENSIVE_COMMANDS);
             changed = true;
@@ -279,7 +319,7 @@ public class PluginConfig {
         // removeObsoleteKeys() deletes again on the next start.
         for (String alertType : new String[]{
                 "incident_opened", "incident_escalated", "incident_resolved", "performance",
-                "packet_flood"}) {
+                "packet_flood", "server_error", "network", "memory"}) {
             String path = "discord.alert_types." + alertType;
             if (!cfg.isSet(path)) {
                 cfg.set(path, true);
@@ -477,6 +517,38 @@ public class PluginConfig {
     public String fallbackLogFile() {
         String path = cfg.getString("database.fallback_log_file", "plugins/PerformanceAnalyzer/fallback.log");
         return path != null && !path.isEmpty() ? path : "plugins/PerformanceAnalyzer/fallback.log";
+    }
+
+    public boolean lagAnalysisNeighborUpdates() {
+        return cfg.getBoolean("lag_analysis.neighbor_updates", false);
+    }
+
+    public boolean lagAnalysisErrorDetection() {
+        return cfg.getBoolean("lag_analysis.error_detection", true);
+    }
+
+    public boolean lagAnalysisMainThreadSampling() {
+        return cfg.getBoolean("lag_analysis.main_thread_sampling", true);
+    }
+
+    public int samplingIntervalMs() {
+        return Math.max(5, cfg.getInt("lag_analysis.sampling_interval_ms", 20));
+    }
+
+    public boolean lagAnalysisNetworkSampling() {
+        return cfg.getBoolean("lag_analysis.network_sampling", true);
+    }
+
+    public boolean networkSpikeAlerts() {
+        return cfg.getBoolean("alerts.network_spikes", false);
+    }
+
+    public boolean memoryTrendAlerts() {
+        return cfg.getBoolean("alerts.memory_trend", true);
+    }
+
+    public boolean serverErrorAlerts() {
+        return cfg.getBoolean("alerts.server_errors", false);
     }
 
     /**

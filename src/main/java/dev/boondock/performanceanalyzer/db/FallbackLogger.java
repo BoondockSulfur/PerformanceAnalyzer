@@ -49,14 +49,15 @@ public class FallbackLogger {
      * @param value Numeric value
      * @param description Description
      */
-    public void log(String type, double value, String description) {
+    public void log(String type, double value, String description, long atMs) {
         // Check queue size to prevent memory issues
         if (queue.size() >= MAX_QUEUE_SIZE) {
             plugin.getLogger().warning("[Fallback] Queue full (" + MAX_QUEUE_SIZE + "), dropping entry: " + type);
             return;
         }
 
-        String timestamp = LocalDateTime.now().format(formatter);
+        String timestamp = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(atMs),
+                java.time.ZoneId.systemDefault()).format(formatter);
         String entry = String.format(java.util.Locale.ROOT, "%s | %s | %.2f | %s", timestamp, type, value, description);
         queue.offer(entry);
 

@@ -35,6 +35,9 @@ public class ChunkTracker implements Listener {
      */
     private static final int MAX_TRACKED_CHUNKS = 4096;
 
+    /** Load timestamps kept per heavy chunk for the recent-churn check. */
+    static final int RECENT_LOADS_KEPT = 32;
+
     // Track chunk load times (approximation via event timing)
     private final Map<String, ChunkLoadStats> chunkLoadHistory = new ConcurrentHashMap<>();
     /** Heavy chunks not tracked because the history was full. */
@@ -204,6 +207,26 @@ public class ChunkTracker implements Listener {
     }
 
     /**
+     * Chunks loaded at least {@code minLoads} times within the last
+     * {@code windowMs}. Unlike {@link #getFrequentlyLoadedChunks(int)} this
+     * ignores loads accumulated over days of normal play, so a chunk only
+     * qualifies while it is actually being re-loaded.
+     */
+    public List<FrequentlyLoadedChunk> getRecentlyChurningChunks(long windowMs, int minLoads, int limit) {
+        long since = System.currentTimeMillis() - windowMs;
+        List<FrequentlyLoadedChunk> result = new ArrayList<>();
+        for (ChunkLoadStats s : chunkLoadHistory.values()) {
+            int recent = s.loadsSince(since);
+            if (recent >= minLoads) {
+                result.add(new FrequentlyLoadedChunk(s.worldName, s.chunkX, s.chunkZ, recent,
+                        s.maxTileEntities.get(), s.maxEntities.get()));
+            }
+        }
+        result.sort((a, b) -> Integer.compare(b.loadCount(), a.loadCount()));
+        return result.stream().limit(limit).toList();
+    }
+
+    /**
      * Get per-world chunk statistics.
      */
     public Map<String, WorldChunkInfo> getPerWorldStats() {
@@ -251,6 +274,9 @@ public class ChunkTracker implements Listener {
         final AtomicInteger loadCount = new AtomicInteger(0);
         final AtomicInteger maxTileEntities = new AtomicInteger(0);
         final AtomicInteger maxEntities = new AtomicInteger(0);
+        // Times of the most recent loads, oldest overwritten first.
+        private final long[] recentLoadsAt = new long[RECENT_LOADS_KEPT];
+        private int recentIndex;
 
         ChunkLoadStats(String worldName, int chunkX, int chunkZ) {
             this.worldName = worldName;
@@ -262,6 +288,22 @@ public class ChunkTracker implements Listener {
             loadCount.incrementAndGet();
             maxTileEntities.updateAndGet(v -> Math.max(v, tileEntities));
             maxEntities.updateAndGet(v -> Math.max(v, entities));
+            synchronized (recentLoadsAt) {
+                recentLoadsAt[recentIndex] = System.currentTimeMillis();
+                recentIndex = (recentIndex + 1) % recentLoadsAt.length;
+            }
+        }
+
+        int loadsSince(long sinceMs) {
+            int count = 0;
+            synchronized (recentLoadsAt) {
+                for (long at : recentLoadsAt) {
+                    if (at >= sinceMs) {
+                        count++;
+                    }
+                }
+            }
+            return count;
         }
     }
 

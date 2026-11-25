@@ -52,10 +52,42 @@ public final class GcSampler {
     private record GcEvent(long atMs, long collections, long timeMs) {
     }
 
+    /**
+     * Long-term trend of the old-generation floor.
+     *
+     * <p>Garbage in the old generation comes and goes, but what is left right
+     * after a collection only creeps upward when something keeps objects
+     * alive - a leak. The lowest after-GC value per 10-minute bucket is that
+     * floor; a steady climb over hours is the early warning that otherwise
+     * only arrives as an OutOfMemoryError.
+     *
+     * @param slopeMbPerHour  fitted growth of the floor
+     * @param r2              how well a straight line fits (1 = perfectly steady)
+     * @param hoursUntilFull  hours until the floor reaches 90 % of the heap at
+     *                        this rate; negative when not growing
+     */
+    public record MemoryTrend(boolean hasData, double spanHours, double slopeMbPerHour, double r2,
+                              long floorMb, long maxMb, double hoursUntilFull) {
+
+        public static final MemoryTrend NONE = new MemoryTrend(false, 0, 0, 0, 0, 0, -1);
+
+        /** Steady growth worth mentioning: over 2 h of data, a good fit, and a real rate. */
+        public boolean leakSuspected() {
+            return hasData && spanHours >= 2.0 && r2 >= 0.7
+                    && slopeMbPerHour >= Math.max(20.0, maxMb * 0.01);
+        }
+    }
+
+    static final long TREND_BUCKET_MS = 10 * 60_000L;
+    static final int TREND_BUCKETS_KEPT = 36;
+
     private final Plugin plugin;
     private final Map<String, long[]> lastPerBean = new HashMap<>();
     private final ArrayDeque<GcEvent> events = new ArrayDeque<>();
     private volatile GcStats stats = GcStats.EMPTY;
+    /** Lowest old-gen after-GC usage (MB) per bucket, oldest first; written by poll() only. */
+    private final ArrayDeque<long[]> floorBuckets = new ArrayDeque<>();
+    private volatile MemoryTrend trend = MemoryTrend.NONE;
     private ScheduledTask task;
 
     public GcSampler(Plugin plugin) {
@@ -97,6 +129,7 @@ public final class GcSampler {
                 long dTime = time - last[1];
                 if (dCount > 0) {
                     events.addLast(new GcEvent(now, dCount, Math.max(0, dTime)));
+                    recordFloor(bean, now);
                 }
             }
             lastPerBean.put(bean.getName(), new long[]{count, time});
@@ -106,6 +139,92 @@ public final class GcSampler {
         while (!events.isEmpty() && events.peekFirst().atMs < cutoff) {
             events.removeFirst();
         }
+        recompute();
+    }
+
+    public MemoryTrend memoryTrend() {
+        return trend;
+    }
+
+    private void recordFloor(GarbageCollectorMXBean bean, long now) {
+        if (!(bean instanceof com.sun.management.GarbageCollectorMXBean sunBean)) {
+            return;
+        }
+        com.sun.management.GcInfo info = sunBean.getLastGcInfo();
+        if (info == null) {
+            return;
+        }
+        long oldBytes = -1;
+        for (var entry : info.getMemoryUsageAfterGc().entrySet()) {
+            String name = entry.getKey().toLowerCase();
+            if (name.contains("old") || name.contains("tenured")) {
+                oldBytes = Math.max(0, oldBytes) + entry.getValue().getUsed();
+            }
+        }
+        if (oldBytes < 0) {
+            return;
+        }
+        long mb = oldBytes / (1024 * 1024);
+        long bucket = now / TREND_BUCKET_MS;
+        long[] last = floorBuckets.peekLast();
+        if (last != null && last[0] == bucket) {
+            last[1] = Math.min(last[1], mb);
+        } else {
+            floorBuckets.addLast(new long[]{bucket, mb});
+            while (floorBuckets.size() > TREND_BUCKETS_KEPT) {
+                floorBuckets.removeFirst();
+            }
+            // A bucket is only final once the next one starts.
+            trend = computeTrend(floorBuckets, maxMb());
+        }
+    }
+
+    /**
+     * Least-squares line through the completed buckets (all but the newest).
+     * Package-private and static so the arithmetic stays under test.
+     */
+    static MemoryTrend computeTrend(java.util.Collection<long[]> buckets, long maxMb) {
+        List<long[]> done = new java.util.ArrayList<>(buckets);
+        if (!done.isEmpty()) {
+            done.remove(done.size() - 1);
+        }
+        int n = done.size();
+        if (n < 6) {
+            return MemoryTrend.NONE;
+        }
+        double x0 = done.get(0)[0];
+        double sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+        for (long[] b : done) {
+            double x = (b[0] - x0) * TREND_BUCKET_MS / 3_600_000.0; // hours
+            double y = b[1];
+            sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y;
+        }
+        double denom = n * sxx - sx * sx;
+        if (denom <= 0) {
+            return MemoryTrend.NONE;
+        }
+        double slope = (n * sxy - sx * sy) / denom;
+        double varY = n * syy - sy * sy;
+        double r2 = varY <= 0 ? 0 : Math.pow(n * sxy - sx * sy, 2) / (denom * varY);
+        long floor = done.get(n - 1)[1];
+        double span = (done.get(n - 1)[0] - done.get(0)[0]) * TREND_BUCKET_MS / 3_600_000.0;
+        double hoursUntilFull = slope > 0 ? Math.max(0, (maxMb * 0.9 - floor) / slope) : -1;
+        return new MemoryTrend(true, span, slope, r2, floor, maxMb, hoursUntilFull);
+    }
+
+    /**
+     * Drops every collection recorded so far from the rolling window.
+     *
+     * <p>Called when the startup grace period ends: a boot GC pause would
+     * otherwise stay in the 60-second window and raise a "GC pressure"
+     * WARNING for a boot that is already over.
+     */
+    public synchronized void forgetWindow() {
+        events.clear();
+        recompute();
+    }
+
+    private void recompute() {
 
         long count60 = 0;
         long time60 = 0;

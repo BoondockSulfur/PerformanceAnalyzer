@@ -29,6 +29,13 @@ status:
   heap_detail: "&7Heap: &f%used% &7/ &f%max% MB &7(%percent%%)"
   baseline: "&7Learned baseline (normal tick time): &f%value% ms"
   cpu: "&7CPU: &f%system%%&7 system | &f%process%%&7 process"
+  errors: "&7Server errors (10 min): &c%count% &7— most frequent: &f%top%"
+  main_thread: "&7Main thread (60 s): &f%list%"
+  slow_tick: "&7Slowest tick (10 min): &f%ms% ms &7in &f%target%"
+  ping: "&7Ping: avg &f%avg% ms&7, highest &f%max% ms &7(%player%), above 250 ms: &f%high%"
+  network_spikes: "&7Network spikes (10 min): &c%count%"
+  memory_trend: "&7Memory floor: &f%floor% MB&7, trend &f%slope% MB/h &7(over %span% h)"
+  memory_trend_warn: "&cMemory floor: &f%floor% MB&c, trend &f+%slope% MB/h&c — full in about %hours% h"
 
 # ===================
 # Performance History
@@ -39,7 +46,7 @@ history:
   mspt_history: "&7MSPT history: &f%sparkline%"
   live_avg: "&7Live - Average: &f%value% ms"
   db_avg: "&7DB (%minutes% min) - Average: &f%value% ms"
-  spikes_warning: "&eWarning: &f%count% performance spikes over %threshold% ms"
+  slow_ticks: "&eWarning: &f%count% slow ticks, longest &c%max% ms &7(details: incidents.log)"
 # ===================
 # Alerts
 # ===================
@@ -275,6 +282,9 @@ alert:
   incident_resolved: "&a[Performance] &fIncident resolved &8— &fDuration: &e%s&f, worst tick: &e%s ms&f, lowest TPS: &e%s"
   no_clear_cause: "no clear cause identified yet"
   packet_flood: "High packet load: %d packets/tick (threshold: %.0f)"
+  server_error: "%s &8— &f%d× in 60 s&r\n&7%s"
+  network_spike: "Network spike: ping of &e%d&f/&e%d&f players rose at once (avg &e%.0f&f → &e%.0f ms&f) while the server is healthy"
+  memory_trend: "Memory keeps growing: &e+%.0f MB/h&f, floor &e%d MB&f of &e%d MB&f — full in about &e%.0f h"
 
 # /perfincidents command (v3.1.0)
 incident_cmd:
@@ -321,12 +331,13 @@ finding:
     recommendation: "Check the configuration of '%s', update it, or profile it with spark to pinpoint the hot path."
   hotchunk:
     title: "%s in %s at %d, %d"
-    detail: "&7Dominant: &f%s&7 — hoppers: &f%.1f/s&7, redstone: &f%.1f/s&7, spawns: &f%.1f/s"
+    detail: "&7Dominant: &f%s&7 — hoppers: &f%.1f/s&7, redstone: &f%.1f/s&7, spawns: &f%.1f/s&7, block updates: &f%.0f/s"
     recommendation: "Inspect the area (world %s, around x=%d z=%d): hopper clocks, item farms and always-on redstone are typical culprits."
     kind:
       hopper: "Heavy hopper item traffic"
       redstone: "Heavy redstone/piston activity"
       spawns: "Heavy mob spawning"
+      neighbor: "Heavy block updates (observers/physics)"
   chunkgen:
     title: "Heavy chunk generation"
     detail: "&7New chunks are being generated at &f%.1f/s&7 (exploration or world border expansion)"
@@ -355,7 +366,46 @@ finding:
   stall:
     title: "Server frozen outside the tick loop"
     detail: "&7The main thread was blocked for %.1f s (%d s ago) without a single tick completing - so tick times look healthy while TPS collapsed"
-    recommendation: "Typical causes: loading or generating a world (/mv create, world imports), a plugin doing blocking I/O on the main thread, or the host itself stalling. Check the server log for what ran at that moment."
+    advice: "Typical causes: a structure search (ender eye, /locate, cartographer or chest maps), loading or generating a world (/mv create, world imports), a plugin doing blocking I/O on the main thread, or the host itself stalling. The stall's trigger and context are in incidents.log."
+  error:
+    title:
+      neighbor_chain: "Neighbor-update chain aborted at %s"
+      stack_overflow: "StackOverflow in the server (%s)"
+      out_of_memory: "Out of memory (%s)"
+      server_exception: "Server error: %s"
+      plugin_exception: "Errors in plugin %s"
+    detail: "&7%d× in the last few seconds — last: &f%s"
+    recommendation:
+      neighbor_chain: "A redstone/observer build at %s loops endlessly or is an update suppressor. Vanilla aborts the chain, so the machine no longer works as intended."
+      stack_overflow: "Usually an update suppressor or recursive plugin logic (%s). Check the server log at that time to find the build or plugin."
+      out_of_memory: "The heap is full (%s). Add memory or look for a leak; the server can crash at any moment."
+      server_exception: "The server threw an exception (%s) while ticking. Check the server log at that time; it often names world and position."
+      plugin_exception: "%s is throwing errors. Update the plugin or report the error from the server log to its developer."
+  tickcost:
+    title: "%s costs %.0f ms/s"
+    detail: "&7Main-thread sample: &f%.1f ms/s&7 (&f%.0f %%&7 of tick time)"
+    hotspot: "\n  &7Code: &f%s &7(%.0f %%)"
+    waiting: "\n  &cHang: &7waits &f%.0f %%&7 of the time on &f%s"
+    recommendation:
+      plugin: "%s uses noticeable tick time. Check its settings (intervals, radius) or update it."
+      entity: "%s entities are expensive. Reduce their number (farms, trading halls), limit pathfinding or set entity limits."
+      block_entity: "%s blocks are expensive to tick. Look for large numbers (hopper chains, furnaces, spawners) and reduce them."
+      chunk_io: "The main thread is waiting for chunks (%s). Pregenerate, lower the view distance or check the disk."
+      redstone: "Redstone and block updates cost time (%s). Enable lag_analysis.neighbor_updates to find the chunk."
+      blocking: "%s blocks the main thread by waiting on %s there. Such calls must run asynchronously; the code line above shows where."
+  slowtick:
+    title: "Slow tick: %.0f ms in %s"
+    detail: "&7Main thread was in: &f%s"
+    waiting: "\n  &cHang: &7main thread was waiting on &f%s"
+    between_ticks: "\n  &7Ran &fbetween two ticks&7 (player action, command, console or queued task) — tick timings do not show it."
+    trigger: "\n  &7Trigger: &f%s"
+    recommendation: "The stack shows which code blocked the tick. For plugin code check the plugin; for server code the named area (entity, chunk, redstone)."
+  structure:
+    recommendation: "The server searches saved chunks for a structure and waits for the disk while doing so - this happens in pregenerated worlds too. Triggers are ender eyes, /locate, cartographer explorer maps and treasure or explorer maps from chests; the trigger in the report shows which. Remedies: a faster disk, a smaller world border or restricting these maps."
+  memtrend:
+    title: "Memory keeps growing (+%.0f MB/h)"
+    detail: "&7Floor after GC: &f%d MB&7 of &f%d MB&7, measured over &f%.1f h&7 — full in about &f%.0f h&7 at this rate"
+    recommendation: "Probably a memory leak (often a plugin that never releases data). Take a heap dump or a Spark heap summary; a restart only buys time."
   unknown:
     title: "No clear single cause found"
     detail: "&7The lag source is not among the instrumented causes (GC, plugins, chunk activity, entities)."
@@ -433,3 +483,65 @@ calibrate:
     folia: "Folia: per-chunk sampling is unavailable, so chunk and world thresholds were left untouched."
     thin_chunk_data: "Only %count% of the %needed% chunk observations needed were collected, so the chunk thresholds were left untouched. Everything else in this proposal is unaffected."
     no_world_data: "No world had a loaded chunk during the whole window, so the world entity thresholds were left untouched. Everything else in this proposal is unaffected."
+
+
+sampler:
+  target:
+    plugin:
+      task: "Plugin %s (tasks)"
+      listener: "Plugin %s (events)"
+      command: "Plugin %s (command)"
+      other: "Plugin %s"
+    entity: "Entity tick %s"
+    block_entity: "Block entity %s"
+    chunk:
+      load_save: "Chunk loading/saving"
+      generation: "Chunk generation"
+      structure_search: "Structure search (saved chunks)"
+    redstone: "Redstone/block updates"
+    server: "Server (other)"
+  wait:
+    none: "nothing"
+    network: "network/database"
+    file_io: "file I/O"
+    lock: "a lock or another thread"
+    sleep: "Thread.sleep"
+    chunk_load: "synchronous chunk loading"
+  trigger:
+    player_action: "Player action (%s)"
+    command: "Command"
+    chunk_tick: "Chunk tick (mob spawning, random ticks)"
+    world_save: "World save"
+    via: " via %s"
+
+report:
+  between_ticks: "[between ticks]"
+  header: "=== Incident #%d — %s to %s (%s) ==="
+  values: "Severity: %s (score %d) | worst avg tick: %.1f ms | worst tick: %.0f ms | lowest TPS: %.1f"
+  suppressed: "(alert suppressed: world save)"
+  triggers: "Triggered by:"
+  findings: "Findings (best attribution first):"
+  opening_findings: "Findings at opening:"
+  profile: "Main-thread profile (last 10 s while the problem lasted):"
+  slow_ticks: "Slowest ticks with stack:"
+  errors: "Server errors in this period:"
+  location: "Location: %s at %d, %d"
+  recommendation: "Recommendation: %s"
+  trigger: "Trigger: %s"
+  context: "Context:"
+  context_players: "Players online: %s"
+  context_none: "no player actions recorded"
+  slow_tick_header: "--- Stall %s: %.0f ms in %s%s ---"
+
+context:
+  kind:
+    command: "Command %s"
+    console_command: "Console/RCON: %s"
+    teleport: "Teleport (%s)"
+    world_change: "World change (from %s)"
+    join: "Login"
+    quit: "Logout (%s)"
+    trade: "Opened trades (%s)"
+    loot: "Loot generated (%s)"
+    ender_eye: "Used an ender eye"
+    ping_jump: "Ping jump %s ms (now/usual)"

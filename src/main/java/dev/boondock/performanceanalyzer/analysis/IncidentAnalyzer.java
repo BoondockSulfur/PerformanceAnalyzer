@@ -54,6 +54,10 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private static final long COMMAND_ATTRIBUTION_MS = 15_000L;
     /** How long after a login or far teleport its chunk loading is blamed for a stall. */
     private static final long ARRIVAL_ATTRIBUTION_MS = 8_000L;
+    /** How long after a logged server error it is listed with an incident. */
+    private static final long ERROR_ATTRIBUTION_MS = 30_000L;
+    /** Window for "this chunk keeps being re-loaded" (chunk churn). */
+    private static final long CHURN_WINDOW_MS = 10 * 60_000L;
     /**
      * Distance beyond which a teleport must load chunks that were not already
      * in memory. Below it the destination is almost certainly loaded already,
@@ -79,11 +83,24 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private final dev.boondock.performanceanalyzer.config.PluginConfig config;
 
     private ListenerTimings listenerTimings;
+    private volatile dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor errorMonitor;
+    private volatile dev.boondock.performanceanalyzer.metrics.MainThreadSampler mainThreadSampler;
+    private volatile GcSampler gcSampler;
     private Listener listener;
     private TickTimeSampler tickSampler;
 
     private final ArrayDeque<Incident> incidents = new ArrayDeque<>();
-    private final AtomicLong nextId = new AtomicLong(1);
+    /** Persisted, so incident numbers keep counting across restarts instead of repeating #1. */
+    private static final String SEQUENCE_FILE = "incident.seq";
+    private final AtomicLong nextId;
+    private volatile ActivityContext activityContext;
+
+    /** Slow ticks reach the database at most this often; a sustained lag is an incident, not a list. */
+    private static final long SLOW_TICK_LOG_MIN_INTERVAL_MS = 2_000L;
+    /** From this duration on a slow tick outside an incident also gets an entry in incidents.log. */
+    private static final double SLOW_TICK_REPORT_MS = 500.0;
+    private final AtomicLong lastSlowTickLogMs = new AtomicLong();
+    private static final long SLOW_TICK_REPORT_DELAY_MS = 5_000L;
 
     private volatile Incident active;
     private long healthySinceMs = -1;
@@ -117,6 +134,39 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         this.entityAnalyzer = entityAnalyzer;
         this.database = database;
         this.config = config;
+        this.nextId = new AtomicLong(loadNextId());
+    }
+
+    private long loadNextId() {
+        if (plugin == null) {
+            return 1;
+        }
+        java.io.File file = new java.io.File(plugin.getDataFolder(), SEQUENCE_FILE);
+        try {
+            if (file.isFile()) {
+                return Math.max(1, Long.parseLong(java.nio.file.Files.readString(file.toPath()).strip()));
+            }
+        } catch (java.io.IOException | NumberFormatException e) {
+            plugin.getLogger().warning("[Incident] Could not read " + SEQUENCE_FILE + ": " + e.getMessage());
+        }
+        return IncidentReport.highestLoggedId(plugin.getDataFolder()) + 1;
+    }
+
+    private void saveNextId(long next) {
+        if (plugin == null) {
+            return;
+        }
+        try {
+            java.nio.file.Files.writeString(new java.io.File(plugin.getDataFolder(), SEQUENCE_FILE).toPath(),
+                    Long.toString(next));
+        } catch (java.io.IOException e) {
+            plugin.getLogger().warning("[Incident] Could not write " + SEQUENCE_FILE + ": " + e.getMessage());
+        }
+    }
+
+    /** Optional; without it reports carry no player context. */
+    public void setActivityContext(ActivityContext activityContext) {
+        this.activityContext = activityContext;
     }
 
     /** Optional; without it no unmeasured-stall attribution is produced. */
@@ -126,6 +176,18 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
 
     public void setListenerTimings(ListenerTimings listenerTimings) {
         this.listenerTimings = listenerTimings;
+    }
+
+    public void setErrorMonitor(dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor errorMonitor) {
+        this.errorMonitor = errorMonitor;
+    }
+
+    public void setMainThreadSampler(dev.boondock.performanceanalyzer.metrics.MainThreadSampler sampler) {
+        this.mainThreadSampler = sampler;
+    }
+
+    public void setGcSampler(GcSampler gcSampler) {
+        this.gcSampler = gcSampler;
     }
 
     public void setListener(Listener listener) {
@@ -176,11 +238,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         String command = rawCommand.startsWith("/") ? rawCommand.substring(1) : rawCommand;
         String lower = command.toLowerCase(java.util.Locale.ROOT);
         for (String prefix : config.expensiveCommands()) {
-            if (prefix.isEmpty()) {
-                continue;
-            }
-            String needle = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-            if (lower.startsWith(needle.toLowerCase(java.util.Locale.ROOT))) {
+            if (matchesExpensivePrefix(lower, prefix)) {
                 this.lastExpensiveCommandAtMs = System.currentTimeMillis();
                 // Trimmed: a //paste can carry a very long argument list, and
                 // this string ends up in chat and Discord.
@@ -190,6 +248,19 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                 return;
             }
         }
+    }
+
+    /**
+     * True when {@code command} (lower-case, first slash already removed)
+     * starts with the configured {@code prefix}. A lone "/" is the WorldEdit
+     * entry and stays as-is: stripped to "" it would match every command.
+     */
+    static boolean matchesExpensivePrefix(String command, String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return false;
+        }
+        String needle = prefix.startsWith("/") && prefix.length() > 1 ? prefix.substring(1) : prefix;
+        return command.startsWith(needle.toLowerCase(java.util.Locale.ROOT));
     }
 
     /**
@@ -257,7 +328,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         if (escalated) {
             refreshFindings(current, ticks, gc, now);
             Listener l = listener;
-            if (l != null && !alertDampened(current)) {
+            if (l != null && !current.alertsSuppressed()) {
                 l.incidentEscalated(current);
             }
         }
@@ -304,7 +375,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private void openIfWarranted(long now, TickStats ticks, GcSampler.GcStats gc,
                                  SeverityModel.Assessment assessment) {
         if (assessment.severity().atLeast(Severity.CRITICAL)) {
-            open(now, ticks, gc, assessment);
+            open(warningSinceMs >= 0 ? warningSinceMs : now, ticks, gc, assessment);
             return;
         }
         if (!assessment.severity().atLeast(Severity.WARNING)) {
@@ -333,9 +404,11 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
     private void open(long startedAtMs, TickStats ticks, GcSampler.GcStats gc,
                       SeverityModel.Assessment assessment) {
         long now = System.currentTimeMillis();
-        Incident incident = new Incident(nextId.getAndIncrement(), startedAtMs,
+        long id = nextId.getAndIncrement();
+        saveNextId(id + 1);
+        Incident incident = new Incident(id, startedAtMs,
                 assessment.severity(), assessment.score(), assessment.reasons());
-        if (warningSinceMs > 0) {
+        if (warningSinceMs >= 0) {
             incident.update(assessment.severity(), assessment.score(),
                     pendingWorstAvgMs, pendingWorstTickMs, pendingLowestTps);
         }
@@ -349,21 +422,25 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         // may predate the trouble entirely.
         activity.rotateNow();
         refreshFindings(incident, ticks, gc, now);
+        incident.setOpeningFindings(incident.findings());
         synchronized (incidents) {
             incidents.addFirst(incident);
             while (incidents.size() > MAX_STORED_INCIDENTS) {
                 incidents.removeLast();
             }
         }
+        // Decided once, here: findings change over the incident's life, and
+        // re-deciding per alert would send an escalation or "resolved" for an
+        // incident whose opening was never announced, or the reverse.
+        if (alertDampened(incident)) {
+            incident.suppressAlerts();
+            plugin.getLogger().info("[Incident] #" + incident.id()
+                    + " attributed to a world save - recorded, alert suppressed"
+                    + " (alerts.dampen_world_save).");
+        }
         Listener l = listener;
-        if (l != null) {
-            if (alertDampened(incident)) {
-                plugin.getLogger().info("[Incident] #" + incident.id()
-                        + " attributed to a world save - recorded, alert suppressed"
-                        + " (alerts.dampen_world_save).");
-            } else {
-                l.incidentOpened(incident);
-            }
+        if (l != null && !incident.alertsSuppressed()) {
+            l.incidentOpened(incident);
         }
     }
 
@@ -374,12 +451,15 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         warningSinceMs = -1;
         if (database != null) {
             database.logAsync("incident", incident.peakScore(),
-                    String.format("severity=%s duration=%ds worstTick=%.0fms lowestTps=%.1f",
+                    String.format(java.util.Locale.ROOT, "#%d start=%s severity=%s duration=%ds worstTick=%.0fms lowestTps=%.1f cause=%s",
+                            incident.id(),
+                            new java.text.SimpleDateFormat(IncidentReport.DATE_TIME).format(new java.util.Date(incident.startedAtMs())),
                             incident.peakSeverity(), incident.durationMs() / 1000,
-                            incident.worstTickMs(), incident.lowestTps()));
+                            incident.worstTickMs(), incident.lowestTps(), IncidentReport.primaryCause(incident)));
         }
+        IncidentReport.write(plugin, lang, incident, mainThreadSampler, errorMonitor, describer());
         Listener l = listener;
-        if (l != null && !alertDampened(incident)) {
+        if (l != null && !incident.alertsSuppressed()) {
             l.incidentResolved(incident);
         }
     }
@@ -412,6 +492,31 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         requestEntitySweep();
         List<Finding> findings = collectFindings(ticks, gc);
         incident.setFindings(findings);
+        var sampler = this.mainThreadSampler;
+        if (sampler != null && sampler.isRunning()) {
+            List<String> lines = new java.util.ArrayList<>();
+            for (var cost : sampler.costs(1)) {
+                if (lines.size() >= 8 || cost.percent() < 1.0) {
+                    break;
+                }
+                lines.add(String.format(java.util.Locale.ROOT, "%s: %.1f ms/s (%.0f %%)%s",
+                        describeSampleTarget(cost.category(), cost.label(), cost.detail()),
+                        cost.msPerSec(), cost.percent(),
+                        cost.waitPercent() >= 20 ? " — " + lang.format("finding.tickcost.waiting",
+                                cost.waitPercent(), waitName(cost.waitKind())).strip() : ""));
+                for (var hotspot : cost.hotspots()) {
+                    lines.add(String.format(java.util.Locale.ROOT, "    %4.0f %%  %s", hotspot.percent(), hotspot.path()));
+                }
+            }
+            if (!lines.isEmpty()) {
+                incident.setProfile(lines);
+            }
+        }
+    }
+
+    /** Localized "what the main thread was waiting on". */
+    public String waitName(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.WaitKind wait) {
+        return lang.format("sampler.wait." + wait.name().toLowerCase(java.util.Locale.ROOT));
     }
 
     /**
@@ -479,7 +584,8 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                     lang.format("finding.hotchunk.title", dominant,
                             chunk.worldName(), chunk.blockX(), chunk.blockZ()),
                     lang.format("finding.hotchunk.detail", dominant,
-                            chunk.hopperMovesPerSec(), chunk.redstonePerSec(), chunk.spawnsPerSec()),
+                            chunk.hopperMovesPerSec(), chunk.redstonePerSec(), chunk.spawnsPerSec(),
+                            chunk.neighborUpdatesPerSec()),
                     lang.format("finding.hotchunk.recommendation", chunk.worldName(), chunk.blockX(), chunk.blockZ()),
                     chunk.worldName(), chunk.blockX(), chunk.blockZ(), chunk.score()));
             added++;
@@ -498,10 +604,10 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         }
 
         // 5. Chunk churn (repeatedly re-loaded chunks — portals, chunk loaders).
-        for (ChunkTracker.FrequentlyLoadedChunk frequent : chunkTracker.getFrequentlyLoadedChunks(2)) {
-            if (frequent.loadCount() < 20) {
-                continue;
-            }
+        // Only recent loads count: the lifetime total lets any busy chunk
+        // collect the blame for every later incident.
+        for (ChunkTracker.FrequentlyLoadedChunk frequent
+                : chunkTracker.getRecentlyChurningChunks(CHURN_WINDOW_MS, 20, 2)) {
             findings.add(Finding.located(Finding.Type.CHUNK_CHURN, Severity.NOTICE, Finding.Confidence.HEURISTIC,
                     lang.format("finding.churn.title", frequent.worldName(), frequent.blockX(), frequent.blockZ()),
                     lang.format("finding.churn.detail", frequent.loadCount()),
@@ -540,7 +646,48 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                     sinceArrivalMs / 1000.0));
         }
 
-        findings.sort(Comparator.comparingInt((Finding f) -> f.severity().level()).reversed());
+        // 6c. Errors from the server log. Only the ones that directly cost
+        // tick time (an aborted update chain, a StackOverflow from an update
+        // suppressor) count as measured; any other exception is a correlation.
+        var errors = this.errorMonitor;
+        if (errors != null && errors.isAttached()) {
+            int shown = 0;
+            for (var error : errors.recent(ERROR_ATTRIBUTION_MS)) {
+                if (shown++ >= 3) {
+                    break;
+                }
+                findings.add(errorFinding(error));
+            }
+        }
+
+        // 6d. Sampled main-thread cost: plugin tasks, entity and block-entity
+        // ticking, chunk I/O - everything the event-based sources cannot see.
+        var mainSampler = this.mainThreadSampler;
+        if (mainSampler != null && mainSampler.isRunning()) {
+            addSampledFindings(findings, mainSampler, timings != null && timings.isActive());
+        }
+
+        // 6e. A steadily rising memory floor is no cause of a single stall,
+        // but it is the explanation once GC pressure starts to bite.
+        GcSampler gcs = this.gcSampler;
+        if (gcs != null) {
+            GcSampler.MemoryTrend trend = gcs.memoryTrend();
+            if (trend.leakSuspected()) {
+                findings.add(Finding.global(Finding.Type.MEMORY_TREND,
+                        trend.hoursUntilFull() >= 0 && trend.hoursUntilFull() < 6 ? Severity.WARNING : Severity.NOTICE,
+                        Finding.Confidence.HEURISTIC,
+                        lang.format("finding.memtrend.title", trend.slopeMbPerHour()),
+                        lang.format("finding.memtrend.detail", trend.floorMb(), trend.maxMb(),
+                                trend.spanHours(), trend.hoursUntilFull()),
+                        lang.format("finding.memtrend.recommendation"),
+                        trend.slopeMbPerHour()));
+            }
+        }
+
+        // Within one severity, measured findings come first: a log error that
+        // merely coincides with the incident must not outrank a measured cost.
+        findings.sort(Comparator.comparingInt((Finding f) -> f.severity().level()).reversed()
+                .thenComparing(Finding::confidence));
 
         // 7. Unmeasured stall: the main thread was blocked outside the tick
         // loop, so none of the instrumented sources above could have seen it.
@@ -556,7 +703,7 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
                         Finding.Confidence.MEASURED,
                         lang.format("finding.stall.title"),
                         lang.format("finding.stall.detail", stallSeconds, sinceStallMs / 1000),
-                        lang.format("finding.stall.recommendation"),
+                        lang.format("finding.stall.advice"),
                         stallSeconds));
             }
         }
@@ -597,10 +744,259 @@ public final class IncidentAnalyzer implements org.bukkit.event.Listener {
         return findings;
     }
 
+    /** Below this a sampled cost is noise: 10 ms/s is 1 % of one second. */
+    private static final double SAMPLED_COST_MIN_MS = 10.0;
+    private static final long SLOW_TICK_ATTRIBUTION_MS = 30_000L;
+
+    private void addSampledFindings(List<Finding> findings,
+                                    dev.boondock.performanceanalyzer.metrics.MainThreadSampler sampler,
+                                    boolean listenerTimingsActive) {
+        int added = 0;
+        for (var cost : sampler.costs(3)) {
+            if (cost.msPerSec() < SAMPLED_COST_MIN_MS || added >= 4) {
+                break;
+            }
+            // Listener time is measured exactly by ListenerTimings; a sampled
+            // estimate next to it would only report the same plugin twice.
+            if (listenerTimingsActive && cost.category() == dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category.PLUGIN
+                    && "LISTENER".equals(cost.detail())) {
+                continue;
+            }
+            if (cost.category() == dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category.SERVER) {
+                continue;
+            }
+            Severity severity = cost.msPerSec() >= 200 ? Severity.CRITICAL
+                    : cost.msPerSec() >= 100 ? Severity.WARNING : Severity.NOTICE;
+            String target = describeSampleTarget(cost.category(), cost.label(), cost.detail());
+            findings.add(Finding.global(Finding.Type.TICK_COST, severity, Finding.Confidence.MEASURED,
+                    lang.format("finding.tickcost.title", target, cost.msPerSec()),
+                    tickCostDetail(cost),
+                    isStructureSearch(cost.category(), cost.label())
+                            ? lang.format("finding.structure.recommendation")
+                            : blocking(cost)
+                            ? lang.format("finding.tickcost.recommendation.blocking", target, waitName(cost.waitKind()))
+                            : lang.format("finding.tickcost.recommendation."
+                            + cost.category().name().toLowerCase(java.util.Locale.ROOT),
+                            switch (cost.category()) {
+                                case PLUGIN, ENTITY, BLOCK_ENTITY -> cost.label();
+                                default -> target;
+                            }),
+                    cost.msPerSec()));
+            added++;
+        }
+
+        var slowest = sampler.slowTicks(SLOW_TICK_ATTRIBUTION_MS).stream()
+                .max(Comparator.comparingDouble(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.SlowTick::durationMs));
+        slowest.ifPresent(tick -> {
+            Severity severity = tick.durationMs() >= 1_000 ? Severity.CRITICAL
+                    : tick.durationMs() >= 250 ? Severity.WARNING : Severity.NOTICE;
+            String frames = String.join("\n   < ", tick.frames().subList(0, Math.min(5, tick.frames().size())));
+            String detail = lang.format("finding.slowtick.detail", frames);
+            if (tick.waitKind() != dev.boondock.performanceanalyzer.metrics.MainThreadSampler.WaitKind.NONE) {
+                detail += lang.format("finding.slowtick.waiting", waitName(tick.waitKind()));
+            }
+            String trigger = describeTrigger(tick.trigger());
+            if (!trigger.isEmpty()) {
+                detail += lang.format("finding.slowtick.trigger", trigger);
+            }
+            if (tick.betweenTicks()) {
+                detail += lang.format("finding.slowtick.between_ticks");
+            }
+            findings.add(Finding.global(Finding.Type.SLOW_TICK, severity, Finding.Confidence.MEASURED,
+                    lang.format("finding.slowtick.title", tick.durationMs(),
+                            describeSampleTarget(tick.category(), tick.label(), tick.detail())),
+                    detail,
+                    isStructureSearch(tick.category(), tick.label())
+                            ? lang.format("finding.structure.recommendation")
+                            : lang.format("finding.slowtick.recommendation"),
+                    tick.durationMs()));
+        });
+    }
+
+    private static boolean isStructureSearch(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category category,
+                                             String label) {
+        return category == dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category.CHUNK_IO
+                && "structure_search".equals(label);
+    }
+
+    /**
+     * Records a finished slow tick: always in the database (rate-limited),
+     * and with stack and context in incidents.log when it is long and no
+     * incident is open - an open incident's report lists it anyway.
+     * Called on the sampler thread; the file is written asynchronously.
+     */
+    public void logSlowTick(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.SlowTick tick) {
+        long last = lastSlowTickLogMs.get();
+        if (tick.atMs() - last < SLOW_TICK_LOG_MIN_INTERVAL_MS || !lastSlowTickLogMs.compareAndSet(last, tick.atMs())) {
+            return;
+        }
+        String target = describeSampleTarget(tick.category(), tick.label(), tick.detail());
+        String trigger = describeTrigger(tick.trigger());
+        if (database != null) {
+            database.logAsync("slow_tick", tick.durationMs(), IncidentReport.plain(target
+                    + (trigger.isEmpty() ? "" : " | " + trigger)
+                    + (tick.waitKind() == dev.boondock.performanceanalyzer.metrics.MainThreadSampler.WaitKind.NONE
+                    ? "" : " | wait=" + tick.waitKind())
+                    + (tick.betweenTicks() ? " | between" : "")
+                    + " | players=" + org.bukkit.Bukkit.getOnlinePlayers().size()));
+        }
+        if (tick.durationMs() >= SLOW_TICK_REPORT_MS && plugin != null && plugin.isEnabled()) {
+            // A stall usually ends before the evaluation that opens its
+            // incident; waiting a moment keeps it from being written twice.
+            IncidentReport.Describer describer = describer();
+            Scheduling.runAsyncDelayed(plugin, () -> {
+                if (!coveredByIncident(tick.atMs())) {
+                    IncidentReport.writeSlowTick(plugin, lang, tick, describer);
+                }
+            }, SLOW_TICK_REPORT_DELAY_MS);
+        }
+    }
+
+    /** True when an incident's report will list a slow tick that ended at {@code atMs}. */
+    private boolean coveredByIncident(long atMs) {
+        Incident current = active;
+        if (current != null && current.startedAtMs() - IncidentReport.SLOW_TICK_MARGIN_MS <= atMs) {
+            return true;
+        }
+        for (Incident incident : recentIncidents()) {
+            long end = incident.isActive() ? Long.MAX_VALUE : incident.startedAtMs() + incident.durationMs();
+            if (atMs >= incident.startedAtMs() - IncidentReport.SLOW_TICK_MARGIN_MS && atMs <= end + IncidentReport.SLOW_TICK_MARGIN_MS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Localized entry point of a slow tick, empty when the stack named none. */
+    public String describeTrigger(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Trigger trigger) {
+        if (trigger == null) {
+            return "";
+        }
+        String entry = switch (trigger.kind()) {
+            case NONE -> "";
+            case PLAYER_ACTION -> lang.format("sampler.trigger.player_action",
+                    trigger.what().startsWith("handle") ? trigger.what().substring("handle".length()) : trigger.what());
+            case COMMAND -> lang.format("sampler.trigger.command");
+            case PLUGIN -> describeSampleTarget(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category.PLUGIN,
+                    trigger.what(), trigger.detail());
+            case ENTITY -> lang.format("sampler.target.entity", trigger.what());
+            case BLOCK_ENTITY -> lang.format("sampler.target.block_entity", trigger.what());
+            case CHUNK_TICK -> lang.format("sampler.trigger.chunk_tick");
+            case WORLD_SAVE -> lang.format("sampler.trigger.world_save");
+        };
+        if (trigger.via().isEmpty()) {
+            return entry;
+        }
+        String via = lang.format("sampler.trigger.via", trigger.via());
+        return entry.isEmpty() ? via.strip() : entry + via;
+    }
+
+    private IncidentReport.Describer describer() {
+        return new IncidentReport.Describer() {
+            @Override
+            public String target(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.SlowTick tick) {
+                return describeSampleTarget(tick.category(), tick.label(), tick.detail());
+            }
+
+            @Override
+            public String trigger(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Trigger trigger) {
+                return describeTrigger(trigger);
+            }
+
+            @Override
+            public List<String> context(long fromMs, long toMs) {
+                return contextLines(fromMs, toMs);
+            }
+        };
+    }
+
+    /** Players online at the start of the span and the actions recorded within it. */
+    List<String> contextLines(long fromMs, long toMs) {
+        ActivityContext context = this.activityContext;
+        if (context == null) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        var players = context.playersAt(fromMs + IncidentReport.CONTEXT_BEFORE_MS);
+        if (!players.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (var p : players) {
+                names.add(String.format(java.util.Locale.ROOT, "%s (%s %d, %d)", p.name(), p.world(), p.x(), p.z()));
+            }
+            lines.add(lang.format("report.context_players", String.join(", ", names)));
+        }
+        var events = context.events(fromMs, toMs);
+        java.text.SimpleDateFormat time = new java.text.SimpleDateFormat("HH:mm:ss");
+        for (var e : events) {
+            lines.add(String.format(java.util.Locale.ROOT, "%s  %s: %s%s",
+                    time.format(new java.util.Date(e.atMs())),
+                    e.player().isEmpty() ? "-" : e.player(),
+                    lang.format("context.kind." + e.kind().name().toLowerCase(java.util.Locale.ROOT), e.detail()),
+                    e.world().isEmpty() ? "" : String.format(java.util.Locale.ROOT, " (%s %d, %d)", e.world(), e.x(), e.z())));
+        }
+        if (events.isEmpty() && !players.isEmpty()) {
+            lines.add(lang.format("report.context_none"));
+        }
+        return lines;
+    }
+
+    /** Waiting is a hang worth its own advice once it is a fifth of the target's time. */
+    private static boolean blocking(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Cost cost) {
+        return cost.waitPercent() >= 20
+                && cost.waitKind() != dev.boondock.performanceanalyzer.metrics.MainThreadSampler.WaitKind.LOCK
+                || cost.waitPercent() >= 50;
+    }
+
+    private String tickCostDetail(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Cost cost) {
+        StringBuilder detail = new StringBuilder(lang.format("finding.tickcost.detail", cost.msPerSec(), cost.percent()));
+        int shown = 0;
+        for (var hotspot : cost.hotspots()) {
+            if (shown++ >= 2) {
+                break;
+            }
+            detail.append(lang.format("finding.tickcost.hotspot", hotspot.path(), hotspot.percent()));
+        }
+        if (cost.waitPercent() >= 20) {
+            detail.append(lang.format("finding.tickcost.waiting", cost.waitPercent(), waitName(cost.waitKind())));
+        }
+        return detail.toString();
+    }
+
+    /** Human-readable name of what a main-thread sample was attributed to. */
+    public String describeSampleTarget(dev.boondock.performanceanalyzer.metrics.MainThreadSampler.Category category,
+                                       String label, String detail) {
+        return switch (category) {
+            case PLUGIN -> lang.format("sampler.target.plugin."
+                    + (detail == null || detail.isEmpty() ? "other" : detail.toLowerCase(java.util.Locale.ROOT)), label);
+            case ENTITY -> lang.format("sampler.target.entity", label);
+            case BLOCK_ENTITY -> lang.format("sampler.target.block_entity", label);
+            case CHUNK_IO -> lang.format("sampler.target.chunk." + label);
+            case REDSTONE -> lang.format("sampler.target.redstone");
+            case SERVER -> lang.format("sampler.target.server");
+        };
+    }
+
+    private Finding errorFinding(dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor.ErrorSummary error) {
+        String kind = error.kind().name().toLowerCase(java.util.Locale.ROOT);
+        Finding.Confidence confidence = switch (error.kind()) {
+            case NEIGHBOR_CHAIN, STACK_OVERFLOW, OUT_OF_MEMORY -> Finding.Confidence.MEASURED;
+            default -> Finding.Confidence.HEURISTIC;
+        };
+        return Finding.global(Finding.Type.SERVER_ERROR, error.severity(), confidence,
+                lang.format("finding.error.title." + kind, error.source()),
+                lang.format("finding.error.detail", error.recentCount(), error.lastMessage()),
+                lang.format("finding.error.recommendation." + kind, error.source()),
+                error.recentCount());
+    }
+
     private String dominantActivity(ActivityCounters.HotChunk chunk) {
         double hopper = chunk.hopperMovesPerSec() * 3;
         double redstone = chunk.redstonePerSec() + chunk.pistonsPerSec() * 2;
         double spawns = chunk.spawnsPerSec() * 4;
+        double neighbors = chunk.neighborUpdatesPerSec() * 0.1;
+        if (neighbors > hopper && neighbors > redstone && neighbors > spawns) {
+            return lang.format("finding.hotchunk.kind.neighbor");
+        }
         if (hopper >= redstone && hopper >= spawns) {
             return lang.format("finding.hotchunk.kind.hopper");
         }

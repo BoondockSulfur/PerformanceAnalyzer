@@ -1,5 +1,5 @@
 name: PerformanceAnalyzer
-version: 3.3.0
+version: 3.4.0
 main: dev.boondock.performanceanalyzer.PerformanceAnalyzer
 api-version: '1.21'
 author: BoondockSulfur

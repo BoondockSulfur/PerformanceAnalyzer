@@ -57,36 +57,31 @@ public class LanguageManager {
         // Save default language files if they don't exist
         saveDefaultLanguageFiles();
 
-        // Load the selected language file
+        // Load the selected language file. effectiveLanguage is the file
+        // actually loaded: merge and placeholder checks must compare against
+        // that file's bundled counterpart, not the one that was asked for.
+        String effectiveLanguage = language;
         File langFile = new File(langFolder, language + ".yml");
-        FileConfiguration langConfig;
-
-        if (langFile.exists()) {
-            langConfig = YamlConfiguration.loadConfiguration(langFile);
-        } else {
-            // Fallback to English if selected language doesn't exist
+        if (!langFile.exists()) {
             plugin.getLogger().warning("[Lang] Language file not found: " + language + ".yml, falling back to English");
+            effectiveLanguage = "en";
             langFile = new File(langFolder, "en.yml");
-            if (langFile.exists()) {
-                langConfig = YamlConfiguration.loadConfiguration(langFile);
-            } else {
-                // Load from resources as last resort
-                InputStream is = plugin.getResource("lang/en.yml");
-                if (is != null) {
-                    langConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(is, StandardCharsets.UTF_8));
-                } else {
-                    plugin.getLogger().severe("[Lang] No language files found!");
-                    this.messages = Map.of();
-                    return;
-                }
-            }
         }
 
-        // Check for missing keys and merge from defaults
-        mergeDefaultKeys(langFile, language);
-
-        // Reload after merge
-        langConfig = YamlConfiguration.loadConfiguration(langFile);
+        FileConfiguration langConfig;
+        if (langFile.exists()) {
+            mergeDefaultKeys(langFile, effectiveLanguage);
+            langConfig = YamlConfiguration.loadConfiguration(langFile);
+        } else {
+            // Load from resources as last resort
+            InputStream is = plugin.getResource("lang/en.yml");
+            if (is == null) {
+                plugin.getLogger().severe("[Lang] No language files found!");
+                this.messages = Map.of();
+                return;
+            }
+            langConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(is, StandardCharsets.UTF_8));
+        }
 
         // Load all messages into a fresh map, then publish it in one step
         Map<String, String> loaded = new HashMap<>();
@@ -95,7 +90,7 @@ public class LanguageManager {
                 loaded.put(key, langConfig.getString(key));
             }
         }
-        replaceOutdatedFormats(loaded, language);
+        replaceOutdatedFormats(loaded, effectiveLanguage);
         this.messages = Map.copyOf(loaded);
 
         plugin.getLogger().info("[Lang] Loaded language: " + language + " (" + loaded.size() + " messages)");
@@ -147,7 +142,13 @@ public class LanguageManager {
         List<String> replaced = new ArrayList<>();
         for (Map.Entry<String, String> entry : loaded.entrySet()) {
             String bundled = defaults.getString(entry.getKey());
-            if (bundled != null && !formatSignature(bundled).equals(formatSignature(entry.getValue()))) {
+            if (bundled == null) {
+                continue;
+            }
+            // Texts without format arguments are only used with get(), where a
+            // literal "%" (e.g. "100%ig") is harmless and must not be overridden.
+            String bundledSignature = formatSignature(bundled);
+            if (!bundledSignature.isEmpty() && !bundledSignature.equals(formatSignature(entry.getValue()))) {
                 entry.setValue(bundled);
                 replaced.add(entry.getKey());
             }

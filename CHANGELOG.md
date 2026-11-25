@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4.0] - 2026-11-25
+
+### Added
+- Main-thread sampler: tick time per plugin (tasks, events, commands), entity type, block entity, chunk I/O, structure searches and redstone, with hottest code paths down to the line.
+- Hang detection: waits on network/database, file I/O, chunk loads, locks or sleep, including stalls between ticks (commands, player actions, queued tasks).
+- Slow ticks are stored in the database (`slow_tick`) with a 60-frame stack and their trigger (player action, command, plugin, entity, chunk tick) plus the game code behind it.
+- Incident report: every resolved incident and every stall of 500 ms or more is written in full to `incidents.log`, with players online and recent actions (commands, teleports, trades, loot, ender eyes, ping jumps); times include the zone, numbers continue across restarts.
+- Server-log error detection: tick exceptions, StackOverflow/OutOfMemory, plugin exceptions and aborted neighbor-update chains (optional alert `alerts.server_errors`).
+- Optional neighbor/block-update counting per chunk (`lag_analysis.neighbor_updates`, off by default).
+- Player ping, network spikes (optional alert `alerts.network_spikes`), single-player ping jumps (`ping_jump`) and connection timeouts (`disconnect`).
+- Memory trend: a steadily rising old-gen floor after GC is reported as a probable leak (`alerts.memory_trend`).
+- New data in `/perfstatus`, the REST API and Prometheus.
+
+### Fixed
+- `/perfhistory` counted minute averages over 50 ms as spikes and never showed real stalls; it now counts stored slow ticks and names the longest.
+- The default `expensive_commands` entry `/` matched every command instead of only WorldEdit commands.
+- A boot GC pause no longer raises a WARNING right after the startup grace period.
+- World-save alert dampening is decided once per incident, so no "resolved" alert follows a suppressed opening.
+- Chunk churn only counts recent reloads; incidents escalating from WARNING are dated from the warning.
+- Database rows carry the measurement time instead of the flush time; long descriptions no longer break MySQL inserts.
+- `/perfreload` applies `player_tracking` and `log_interval_seconds`.
+- Placeholder checks use the language file actually loaded and ignore texts without format arguments.
+
 ## [3.3.0] - 2026-10-21
 
 ### Fixed

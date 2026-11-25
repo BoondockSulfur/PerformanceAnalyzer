@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockPhysicsEvent;
 import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockRedstoneEvent;
@@ -42,6 +43,8 @@ public final class ActivityCounters implements Listener {
     /** Hard cap on tracked chunks per window; beyond it activity is counted globally only. */
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final long WINDOW_MS = 10_000L;
+    /** Below this age an incident-triggered rotation keeps the previous window. */
+    private static final long MIN_EARLY_ROTATION_MS = 2_000L;
 
     /** Per-chunk counters for one window. */
     private static final class Window {
@@ -51,6 +54,7 @@ public final class ActivityCounters implements Listener {
         final LongAdder spawns = new LongAdder();
         final LongAdder chunkLoads = new LongAdder();
         final LongAdder chunkGens = new LongAdder();
+        final LongAdder neighborUpdates = new LongAdder();
     }
 
     private record ChunkAddress(UUID worldId, String worldName, int x, int z) {
@@ -71,6 +75,7 @@ public final class ActivityCounters implements Listener {
             double spawnsPerSec,
             double chunkLoadsPerSec,
             double chunkGensPerSec,
+            double neighborUpdatesPerSec,
             double score) {
 
         public int blockX() {
@@ -90,10 +95,11 @@ public final class ActivityCounters implements Listener {
             double spawnsPerSec,
             double chunkLoadsPerSec,
             double chunkGensPerSec,
+            double neighborUpdatesPerSec,
             int trackedChunks,
             boolean overflow) {
 
-        public static final GlobalActivity EMPTY = new GlobalActivity(0, 0, 0, 0, 0, 0, 0, false);
+        public static final GlobalActivity EMPTY = new GlobalActivity(0, 0, 0, 0, 0, 0, 0, 0, false);
     }
 
     private final Plugin plugin;
@@ -106,6 +112,8 @@ public final class ActivityCounters implements Listener {
     private volatile GlobalActivity globalActivity = GlobalActivity.EMPTY;
     private volatile long windowStartedAtMs = System.currentTimeMillis();
     private ScheduledTask rotateTask;
+    private final NeighborUpdateListener neighborListener = new NeighborUpdateListener();
+    private boolean neighborTracking;
 
     public ActivityCounters(Plugin plugin) {
         this.plugin = plugin;
@@ -121,6 +129,32 @@ public final class ActivityCounters implements Listener {
         Scheduling.cancel(rotateTask);
         rotateTask = null;
         HandlerList.unregisterAll(this);
+        setNeighborUpdateTracking(false);
+    }
+
+    /**
+     * Turns counting of neighbor/block updates on or off.
+     *
+     * <p>{@link BlockPhysicsEvent} fires for every block update - observer
+     * chains, falling blocks, flowing water - and Paper only builds the event
+     * at all while someone listens. Listening therefore costs tick time on its
+     * own, which is why it is a separate listener that is registered only
+     * when {@code lag_analysis.neighbor_updates} asks for it.
+     */
+    public synchronized void setNeighborUpdateTracking(boolean enabled) {
+        if (enabled == neighborTracking) {
+            return;
+        }
+        if (enabled) {
+            plugin.getServer().getPluginManager().registerEvents(neighborListener, plugin);
+        } else {
+            HandlerList.unregisterAll(neighborListener);
+        }
+        neighborTracking = enabled;
+    }
+
+    public boolean neighborUpdateTracking() {
+        return neighborTracking;
     }
 
     /** Top chunks by activity score from the last completed 10s window. */
@@ -200,6 +234,19 @@ public final class ActivityCounters implements Listener {
         }
     }
 
+    private final class NeighborUpdateListener implements Listener {
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onPhysics(BlockPhysicsEvent event) {
+            globalWindow.neighborUpdates.increment();
+            org.bukkit.block.Block block = event.getBlock();
+            Window w = windowFor(block.getWorld().getUID(), block.getWorld().getName(),
+                    block.getX() >> 4, block.getZ() >> 4);
+            if (w != null) {
+                w.neighborUpdates.increment();
+            }
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChunkLoad(ChunkLoadEvent event) {
         Window w = windowFor(event.getWorld().getUID(), event.getWorld().getName(),
@@ -248,8 +295,16 @@ public final class ActivityCounters implements Listener {
      * <p>Rotating early is safe because the rates divide by the window's real
      * elapsed time rather than by a constant; a short window under-reports
      * slightly (the divisor is floored at one second) but never invents load.
+     *
+     * <p>A window younger than {@link #MIN_EARLY_ROTATION_MS} is left alone:
+     * the last completed one is then barely older and holds a full window of
+     * data, whereas closing a fraction of a second would discard it and
+     * divide a few events by the one-second floor.
      */
-    public void rotateNow() {
+    public synchronized void rotateNow() {
+        if (System.currentTimeMillis() - windowStartedAtMs < MIN_EARLY_ROTATION_MS) {
+            return;
+        }
         rotateWindow();
     }
 
@@ -267,6 +322,7 @@ public final class ActivityCounters implements Listener {
                 globalWindow.spawns.sumThenReset() / seconds,
                 globalWindow.chunkLoads.sumThenReset() / seconds,
                 globalWindow.chunkGens.sumThenReset() / seconds,
+                globalWindow.neighborUpdates.sumThenReset() / seconds,
                 finished.size(),
                 overflow);
 
@@ -279,16 +335,19 @@ public final class ActivityCounters implements Listener {
             double spawns = w.spawns.sum() / seconds;
             double loads = w.chunkLoads.sum() / seconds;
             double gens = w.chunkGens.sum() / seconds;
+            double neighbors = w.neighborUpdates.sum() / seconds;
             // Weighted activity score. Weights approximate relative tick cost
             // per event: hopper item moves and spawner output are the classic
-            // heavy hitters, chunk generation dwarfs everything else.
-            double score = redstone + pistons * 2 + hoppers * 3 + spawns * 4 + loads * 2 + gens * 20;
+            // heavy hitters, chunk generation dwarfs everything else. A single
+            // block update is cheap and they come in thousands, hence 0.1.
+            double score = redstone + pistons * 2 + hoppers * 3 + spawns * 4 + loads * 2 + gens * 20
+                    + neighbors * 0.1;
             if (score <= 0) {
                 continue;
             }
             ChunkAddress address = entry.getKey();
             ranked.add(new HotChunk(address.worldName(), address.x(), address.z(),
-                    redstone, pistons, hoppers, spawns, loads, gens, score));
+                    redstone, pistons, hoppers, spawns, loads, gens, neighbors, score));
         }
         ranked.sort(Comparator.comparingDouble(HotChunk::score).reversed());
         this.hotChunks = ranked.size() > 25 ? List.copyOf(ranked.subList(0, 25)) : List.copyOf(ranked);

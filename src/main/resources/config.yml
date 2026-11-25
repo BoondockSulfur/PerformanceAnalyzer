@@ -11,6 +11,8 @@ language: en
 # Database Configuration
 database:
   # Database type: 'sqlite' or 'mysql'
+  # Timestamps (ts) use the database clock: UTC for SQLite, the server's zone
+  # for MySQL. incidents.log uses local time and prints the zone.
   type: sqlite
 
   # SQLite settings (only relevant when type: sqlite)
@@ -68,6 +70,33 @@ lag_analysis:
   # Identifies plugins with many event listeners and tasks
   # Has minimal performance impact
   plugin_analysis: true
+
+  # Count block/neighbor updates per chunk (observer chains, flowing water,
+  # falling blocks) and include them in the hot-chunk ranking.
+  # PERFORMANCE: Paper only creates these events while a plugin listens, and
+  # there can be tens of thousands per second - so this is off by default.
+  # Turn it on while hunting an observer or update loop, then off again.
+  neighbor_updates: false
+
+  # Read errors from the server log: tick exceptions, StackOverflowError from
+  # update suppressors, "Too many chained neighbor updates" and plugin
+  # exceptions. They are listed with incidents, in /perfstatus and in the
+  # database. Negligible cost (only WARN/ERROR lines are looked at).
+  error_detection: true
+
+  # Sample the main thread's stack while a tick runs, to see what the tick
+  # spends its time on: plugin tasks (not only event listeners), entity types
+  # (villager AI, item entities), block entities (hoppers, furnaces), chunk
+  # loading/generation and redstone. Also records what a slow tick was doing.
+  # Paper only (Folia has no single main thread).
+  # PERFORMANCE: one stack read per sample, only during ticks; at 20 ms well
+  # below 1 % of a core. Larger intervals are cheaper but coarser.
+  main_thread_sampling: true
+  sampling_interval_ms: 20
+
+  # Track player ping and detect network spikes (most players' ping jumping
+  # at the same moment while the server itself is healthy).
+  network_sampling: true
 
   # Timeout for chunk analysis in milliseconds
   # Prevents chunk analysis from taking too long with many chunks
@@ -161,6 +190,9 @@ discord:
     incident_escalated: true
     incident_resolved: true
     packet_flood: true
+    server_error: true
+    network: true
+    memory: true
     performance: true
 
 # Alert Preferences (Streamer/Silent Mode)
@@ -194,6 +226,20 @@ alerts:
   # The incident is dated from when the trouble started, not from when this
   # wait expired, so durations stay honest. Set to 0 to report immediately.
   warning_sustain_seconds: 30
+
+  # Also alert (chat + Discord type "server_error") when the server log shows
+  # an error, independent of any incident. At most one such alert every
+  # 2-10 minutes depending on severity. Needs lag_analysis.error_detection.
+  server_errors: false
+
+  # Alert (Discord type "network") when most players' ping jumps at once while
+  # the server is healthy - a problem with the uplink or the hoster's network.
+  network_spikes: false
+
+  # Alert (Discord type "memory") when the memory floor after GC keeps rising
+  # and would fill the heap within 6 hours - a probable memory leak.
+  # At most one alert every 2 hours.
+  memory_trend: true
 
 # Cause attribution
 attribution:

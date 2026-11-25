@@ -48,6 +48,11 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     private TickTimeSampler tickTimeSampler;
     private GcSampler gcSampler;
     private ActivityCounters activityCounters;
+    private dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor errorMonitor;
+    private dev.boondock.performanceanalyzer.metrics.MainThreadSampler mainThreadSampler;
+    private dev.boondock.performanceanalyzer.metrics.NetworkSampler networkSampler;
+    private dev.boondock.performanceanalyzer.analysis.ActivityContext activityContext;
+    private volatile long lastMemoryTrendAlertMs;
     private ListenerTimings listenerTimings;
     private MonitorService monitorService;
     private IncidentAnalyzer incidentAnalyzer;
@@ -57,6 +62,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     private EntityAnalyzer entityAnalyzer;
     private ChunkTracker chunkTracker;
     private PlayerActivityTracker playerActivityTracker;
+    private boolean playerTrackingRegistered;
 
     // Integrations
     private ProtocolLibHook protocolLibHook;
@@ -112,9 +118,7 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(chunkTracker, this);
 
         this.playerActivityTracker = new PlayerActivityTracker(this, configAdapter);
-        if (configAdapter.lagAnalysisPlayerTracking()) {
-            getServer().getPluginManager().registerEvents(playerActivityTracker, this);
-        }
+        applyPlayerTrackingSetting();
 
         // v3.1.0 measurement core
         this.tickTimeSampler = new TickTimeSampler(this);
@@ -133,6 +137,25 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.incidentAnalyzer.setListenerTimings(listenerTimings);
         this.incidentAnalyzer.setTickSampler(tickTimeSampler);
         this.incidentAnalyzer.setListener(alertManager);
+
+        java.util.Set<String> pluginNames = java.util.Arrays.stream(getServer().getPluginManager().getPlugins())
+                .map(org.bukkit.plugin.Plugin::getName)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        this.errorMonitor = new dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor(
+                getLogger().getName(), () -> pluginNames);
+        this.errorMonitor.setSink(this::onServerError);
+        this.incidentAnalyzer.setErrorMonitor(errorMonitor);
+
+        this.mainThreadSampler = new dev.boondock.performanceanalyzer.metrics.MainThreadSampler(this);
+        this.incidentAnalyzer.setMainThreadSampler(mainThreadSampler);
+        this.incidentAnalyzer.setGcSampler(gcSampler);
+        this.networkSampler = new dev.boondock.performanceanalyzer.metrics.NetworkSampler(this);
+        this.networkSampler.setSpikeListener(this::onNetworkSpike);
+        this.networkSampler.setPlayerJumpListener(this::onPlayerPingJump);
+        this.activityContext = new dev.boondock.performanceanalyzer.analysis.ActivityContext(this);
+        this.incidentAnalyzer.setActivityContext(activityContext);
+        getServer().getPluginManager().registerEvents(activityContext, this);
+        this.activityContext.start();
         // WorldSaveEvent marker for save-stall attribution
         getServer().getPluginManager().registerEvents(incidentAnalyzer, this);
 
@@ -140,11 +163,25 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         this.monitorService.setLanguage(lang);
         this.monitorService.setStartupGraceSeconds(configAdapter.startupGraceSeconds());
         this.monitorService.setDatabase(database, configAdapter.logIntervalSeconds());
+        this.monitorService.setNetworkSampler(networkSampler);
+        this.networkSampler.setServerHealthy(() ->
+                !monitorService.assessment().severity().atLeast(dev.boondock.performanceanalyzer.analysis.Severity.WARNING));
         this.tickTimeSampler.onSpike(configAdapter.spikeTickMs(), this::onTickSpike);
+        this.mainThreadSampler.setSlowTickListener(tick -> {
+            MonitorService monitor = this.monitorService;
+            if (monitor != null && !monitor.inStartupGrace()) {
+                incidentAnalyzer.logSlowTick(tick);
+            }
+        });
 
         this.tickTimeSampler.start();
         this.gcSampler.start();
         this.activityCounters.start();
+        applyNeighborUpdateSetting();
+        applyErrorDetectionSetting();
+        applyMainThreadSamplingSetting();
+        applyNetworkSamplingSetting();
+        Scheduling.runAsyncRepeating(this, this::checkMemoryTrend, 60_000L, 60_000L);
         if (configAdapter.lagAnalysisPluginAnalysis()) {
             this.listenerTimings.start();
         }
@@ -254,6 +291,10 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         if (monitorService != null) monitorService.stop();
         if (listenerTimings != null) listenerTimings.stop();
         if (activityCounters != null) activityCounters.stop();
+        if (errorMonitor != null) errorMonitor.detach(getLogger());
+        if (mainThreadSampler != null) mainThreadSampler.stop();
+        if (networkSampler != null) networkSampler.stop();
+        if (activityContext != null) activityContext.stop();
         if (gcSampler != null) gcSampler.stop();
         if (tickTimeSampler != null) tickTimeSampler.stop();
         if (protocolLibHook != null) protocolLibHook.shutdown();
@@ -274,6 +315,13 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
             if (alertPreferenceManager != null) {
                 alertPreferenceManager.cleanup(playerId);
             }
+            // Only the reasons that point at the connection: a normal logout
+            // and a kick say nothing about it.
+            PlayerQuitEvent.QuitReason reason = event.getReason();
+            if (database != null && (reason == PlayerQuitEvent.QuitReason.TIMED_OUT
+                    || reason == PlayerQuitEvent.QuitReason.ERRONEOUS_STATE)) {
+                database.logAsync("disconnect", player.getPing(), player.getName() + " " + reason.name());
+            }
         }
     }
 
@@ -288,6 +336,9 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         reloadConfig();
         configAdapter.reload();
         lang.setLanguage(configAdapter.language());
+        if (database != null) {
+            database.scheduleFlush(configAdapter.logIntervalSeconds());
+        }
         if (monitorService != null) {
             monitorService.setDatabase(database, configAdapter.logIntervalSeconds());
             monitorService.setStartupGraceSeconds(configAdapter.startupGraceSeconds());
@@ -298,10 +349,137 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
         if (chunkTracker != null) {
             chunkTracker.refreshThresholds();
         }
+        applyPlayerTrackingSetting();
+        applyNeighborUpdateSetting();
+        applyErrorDetectionSetting();
+        applyMainThreadSamplingSetting();
+        applyNetworkSamplingSetting();
         applyListenerTimingsSetting();
         applyPacketAnalysisSetting();
         applyApiSetting();
         getLogger().info("Plugin configuration reloaded successfully.");
+    }
+
+    /** Registers or unregisters the player activity listener to match the config. */
+    private void applyPlayerTrackingSetting() {
+        if (playerActivityTracker == null) {
+            return;
+        }
+        boolean wanted = configAdapter.lagAnalysisPlayerTracking();
+        if (wanted && !playerTrackingRegistered) {
+            getServer().getPluginManager().registerEvents(playerActivityTracker, this);
+            playerTrackingRegistered = true;
+        } else if (!wanted && playerTrackingRegistered) {
+            org.bukkit.event.HandlerList.unregisterAll(playerActivityTracker);
+            playerActivityTracker.clearActivity();
+            playerTrackingRegistered = false;
+        }
+    }
+
+    /** Counts block/neighbor updates only while lag_analysis.neighbor_updates is on. */
+    private void applyNeighborUpdateSetting() {
+        if (activityCounters != null) {
+            activityCounters.setNeighborUpdateTracking(configAdapter.lagAnalysisNeighborUpdates());
+        }
+    }
+
+    /** Attaches or detaches the server-log error reader to match the config. */
+    private void applyErrorDetectionSetting() {
+        if (errorMonitor == null) {
+            return;
+        }
+        if (configAdapter.lagAnalysisErrorDetection()) {
+            errorMonitor.attach(getLogger());
+        } else {
+            errorMonitor.detach(getLogger());
+        }
+    }
+
+    /** Starts, reconfigures or stops the main-thread sampler to match the config. */
+    private void applyMainThreadSamplingSetting() {
+        if (mainThreadSampler == null) {
+            return;
+        }
+        mainThreadSampler.configure(configAdapter.samplingIntervalMs(), configAdapter.spikeTickMs());
+        if (configAdapter.lagAnalysisMainThreadSampling()) {
+            mainThreadSampler.start();
+        } else {
+            mainThreadSampler.stop();
+        }
+    }
+
+    private void applyNetworkSamplingSetting() {
+        if (networkSampler == null) {
+            return;
+        }
+        networkSampler.stop();
+        if (configAdapter.lagAnalysisNetworkSampling()) {
+            networkSampler.start();
+        }
+    }
+
+    /** One player's connection stumbled while the server was healthy. */
+    private void onPlayerPingJump(dev.boondock.performanceanalyzer.metrics.NetworkSampler.PlayerJump jump) {
+        if (database != null) {
+            database.logAsync("ping_jump", jump.pingMs(), jump.player() + " usual=" + Math.round(jump.usualMs()) + "ms");
+        }
+        if (activityContext != null) {
+            activityContext.recordPingJump(jump.player(), jump.pingMs(), jump.usualMs());
+        }
+    }
+
+    private void onNetworkSpike(dev.boondock.performanceanalyzer.metrics.NetworkSampler.NetworkSpike spike) {
+        if (database != null) {
+            database.logAsync("network_spike", spike.avgNowMs(),
+                    spike.affected() + "/" + spike.players() + " players, before " + Math.round(spike.avgBeforeMs()) + " ms");
+        }
+        if (alertManager != null && configAdapter.networkSpikeAlerts()) {
+            alertManager.sendAlert(AlertManager.AlertType.NETWORK, dev.boondock.performanceanalyzer.analysis.Severity.WARNING,
+                    lang.format("alert.network_spike", spike.affected(), spike.players(),
+                            spike.avgBeforeMs(), spike.avgNowMs()),
+                    spike.avgNowMs());
+        }
+    }
+
+    /**
+     * Alerts once every two hours while the memory floor is on course to
+     * fill the heap within six hours. Rarer than the other alerts on
+     * purpose: the trend changes over hours, not minutes.
+     */
+    private void checkMemoryTrend() {
+        if (gcSampler == null || alertManager == null || !configAdapter.memoryTrendAlerts()) {
+            return;
+        }
+        var trend = gcSampler.memoryTrend();
+        long now = System.currentTimeMillis();
+        if (!trend.leakSuspected() || trend.hoursUntilFull() < 0 || trend.hoursUntilFull() >= 6
+                || now - lastMemoryTrendAlertMs < 2 * 3_600_000L) {
+            return;
+        }
+        lastMemoryTrendAlertMs = now;
+        alertManager.sendAlert(AlertManager.AlertType.MEMORY, dev.boondock.performanceanalyzer.analysis.Severity.WARNING,
+                lang.format("alert.memory_trend", trend.slopeMbPerHour(), trend.floorMb(), trend.maxMb(),
+                        trend.hoursUntilFull()),
+                trend.slopeMbPerHour());
+    }
+
+    /**
+     * Called from inside the logging call, at most once a minute per error
+     * source: it only queues work and never logs itself.
+     */
+    private void onServerError(dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor.ErrorSummary error) {
+        String kind = error.kind().name().toLowerCase(java.util.Locale.ROOT);
+        if (database != null) {
+            database.logAsync("server_error", error.recentCount(),
+                    kind + " " + error.source() + ": " + error.lastMessage());
+        }
+        if (alertManager != null && configAdapter.serverErrorAlerts() && isEnabled()) {
+            String message = lang.format("alert.server_error",
+                    lang.format("finding.error.title." + kind, error.source()),
+                    error.recentCount(), error.lastMessage());
+            Scheduling.runAsync(this, () -> alertManager.sendAlert(
+                    AlertManager.AlertType.SERVER_ERROR, error.severity(), message, error.recentCount()));
+        }
     }
 
     /** Starts or stops listener timing injection to match the config. */
@@ -386,6 +564,10 @@ public class PerformanceAnalyzer extends JavaPlugin implements Listener {
     public MonitorService monitor() { return monitorService; }
     public IncidentAnalyzer incidents() { return incidentAnalyzer; }
     public ActivityCounters activity() { return activityCounters; }
+    public dev.boondock.performanceanalyzer.monitor.ServerErrorMonitor errors() { return errorMonitor; }
+    public dev.boondock.performanceanalyzer.metrics.MainThreadSampler mainThreadSampler() { return mainThreadSampler; }
+    public dev.boondock.performanceanalyzer.metrics.NetworkSampler network() { return networkSampler; }
+    public dev.boondock.performanceanalyzer.metrics.GcSampler gc() { return gcSampler; }
     public ListenerTimings timings() { return listenerTimings; }
     public MetricsAPI api() { return metricsApi; }
     public AlertPreferenceManager getAlertPreferenceManager() { return alertPreferenceManager; }

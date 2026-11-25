@@ -41,6 +41,14 @@ public record Finding(
         CHUNK_CHURN,
         ENTITY_HOTSPOT,
         PACKET_FLOOD,
+        /** An error from the server log: tick exception, StackOverflow, aborted neighbor-update chain. */
+        SERVER_ERROR,
+        /** Sampled main-thread cost of a plugin, entity type, block entity, chunk I/O or redstone. */
+        TICK_COST,
+        /** One tick far over budget, with what the main thread was doing in it. */
+        SLOW_TICK,
+        /** The old-generation floor after GC keeps rising: probable memory leak. */
+        MEMORY_TREND,
         UNKNOWN
     }
 

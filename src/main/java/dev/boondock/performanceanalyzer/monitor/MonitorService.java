@@ -43,7 +43,8 @@ public final class MonitorService {
     private volatile SeverityModel.Assessment assessment = SeverityModel.Assessment.OK;
 
     private volatile long graceMs;
-    private long armedAtMs;
+    private volatile long armedAtMs;
+    private boolean graceOver;
     private ScheduledTask loopTask;
 
     // Sampled on the main thread (see start()); -1 means "not sampled yet".
@@ -55,6 +56,12 @@ public final class MonitorService {
 
     /** Milliseconds from start() to the first OK assessment; -1 until then. */
     private volatile long millisToFirstOk = -1;
+
+    private volatile dev.boondock.performanceanalyzer.metrics.NetworkSampler networkSampler;
+
+    public void setNetworkSampler(dev.boondock.performanceanalyzer.metrics.NetworkSampler networkSampler) {
+        this.networkSampler = networkSampler;
+    }
 
     public MonitorService(Plugin plugin, TickTimeSampler tickSampler, GcSampler gcSampler,
                           IncidentAnalyzer incidentAnalyzer) {
@@ -85,9 +92,15 @@ public final class MonitorService {
         this.graceMs = Math.max(0, seconds) * 1_000L;
     }
 
+    /** True while the startup grace period runs: boot ticks are slow by nature. */
+    public boolean inStartupGrace() {
+        return System.currentTimeMillis() - armedAtMs < graceMs;
+    }
+
     public void start() {
         stop();
         armedAtMs = System.currentTimeMillis();
+        graceOver = false;
         loopTask = Scheduling.runAsyncRepeating(plugin, this::evaluate, 1_000L, 1_000L);
         // Load context has to be read from the tick thread, so it is sampled
         // here every 10 s and only consumed by the async logging step.
@@ -138,6 +151,14 @@ public final class MonitorService {
             if (org.bukkit.Bukkit.isStopping()) {
                 return;
             }
+            boolean inGrace = System.currentTimeMillis() - armedAtMs < graceMs;
+            if (!inGrace && !graceOver) {
+                // Boot GC pauses would otherwise stay in the 60-second window
+                // and open a "GC pressure" incident right after the grace
+                // period, for a boot that is long over.
+                graceOver = true;
+                gcSampler.forgetWindow();
+            }
             TickStats ticks = tickSampler.snapshot();
             GcSampler.GcStats gc = gcSampler.stats();
             SeverityModel.Assessment result = SeverityModel.evaluate(ticks, gc, baseline, lang);
@@ -161,7 +182,7 @@ public final class MonitorService {
 
             // During the startup grace period metrics are shown but no
             // incidents are opened — boot ticks are always slow.
-            if (System.currentTimeMillis() - armedAtMs >= graceMs) {
+            if (!inGrace) {
                 incidentAnalyzer.onEvaluation(ticks, gc, result);
             }
 
@@ -192,6 +213,17 @@ public final class MonitorService {
             if (gc.hasAfterGcData()) {
                 db.logAsync("oldgen_after_gc", gc.oldGenAfterGcPercent(), null);
             }
+        }
+        GcSampler.MemoryTrend trend = gcSampler.memoryTrend();
+        if (trend.hasData()) {
+            db.logAsync("oldgen_floor_mb", trend.floorMb(),
+                    String.format(java.util.Locale.ROOT, "slope=%.1fMB/h r2=%.2f", trend.slopeMbPerHour(), trend.r2()));
+        }
+        var network = this.networkSampler;
+        if (network != null && network.snapshot().players() > 0) {
+            var ping = network.snapshot();
+            db.logAsync("ping_avg", ping.avgPingMs(), null);
+            db.logAsync("ping_max", ping.worstPingMs(), ping.worstPlayer());
         }
 
         // Load context. Without these two series nothing can tell a quiet
